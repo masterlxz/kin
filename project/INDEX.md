@@ -1,0 +1,32 @@
+# Kin — Estado do Projeto
+
+> Última atualização: 2026-09-27 (Sessão 1 — projeto criado a partir da spec original
+> `SPEC-rede-comunicacao-p2p.md`, cujo conteúdo foi distribuído nestes arquivos e o arquivo
+> removido). **Status: pré-projeto** — ideia registrada, ainda não iniciado; entra na fila do
+> ecossistema depois dos projetos em andamento.
+>
+> **Nome**: `Kin` é provisório/"meio fixo" (Sessão 1) — pode mudar. O nome "TruthNet" foi rejeitado.
+
+---
+
+## Como Usar Este Arquivo
+
+O estado do projeto foi dividido em arquivos menores dentro desta pasta (`project/`).
+Leia o arquivo relevante para o que você precisa:
+
+| Para saber sobre | Leia |
+|---|---|
+| Diretrizes de código e ensino | `GUIDELINES.md` |
+| Visão geral, stack, status das fases | `OVERVIEW.md` |
+| PRD (visão, objetivos, arquitetura em camadas, identidade, conectividade) | `CONTEXT.md` |
+| **Todas as fases detalhadas** | **`PHASE.md`** |
+| Decisões de arquitetura (inclui as decisões em aberto D1–D6) | `ARCHITECTURE.md` |
+| **Pendências (resolvidas e não resolvidas)** | **`PENDING.md`** |
+| Roadmap, prior art, riscos, blockchain (Fase 8) | `ROADMAP.md` |
+| Log completo de sessões de trabalho | `SESSIONS.md` |
+
+**Ao começar uma sessão**: Diga ao Claude "leia os arquivos em `project/` e me ajude a continuar"
+**Ao terminar uma sessão**: Atualize o Log de Sessões em `SESSIONS.md` e marque etapas concluídas. Se resolveu uma pendência, atualize `PENDING.md`.
+**Ao tomar uma decisão**: Registre em `ARCHITECTURE.md`
+**Ao encontrar um bug/pendência nova**: Adicione em `PENDING.md` com ID sequencial
+**Ao mudar de máquina**: Sincronize via git
