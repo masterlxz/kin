@@ -38,7 +38,24 @@
   - achado de maior peso: medição do DCUtR em escala (IMC '26) dá ~70% de sucesso de hole punching,
     ou seja, ~30% dos pares precisam de relay que carregue tráfego;
   - etapa 0.1 marcada como concluída; P8 resolvida.
+- **Decisão D3** (mesma sessão): usuário escolheu **`rust-libp2p`** (assistente recomendava iroh).
+  Custos e mitigações em `ARCHITECTURE.md`; etapa 0.2 e P3 resolvidas.
+- **Decisão D2** (mesma sessão): usuário escolheu **MLS via `openmls`** (recomendação do assistente).
+  Risco principal: ordenação de commits sem Delivery Service, registrado como P9. Etapa 0.3 e P2
+  resolvidas.
+- **Decisão D4** (mesma sessão): usuário rejeitou as opções puras e definiu um **híbrido**: pessoal
+  estilo WhatsApp + workspaces estilo Slack/Discord, com **threads em todo o app**. Threads entram no
+  formato de mensagem desde a Fase 1; workspaces na Fase 5/6. Pendência P10 aberta (histórico,
+  papéis, custo MLS sem servidor). Etapa 0.4 e P4 resolvidas.
+- **Decisão D1** (mesma sessão): usuário escolheu **outbox local → relays Nostr (Fase 3) → peers como
+  mailbox (Fase 4)** (recomendação do assistente). P9 passa a assumir entrega at-least-once sem ordem.
+  Etapa 0.5 e P1 resolvidas. **Fase 0 concluída** (só D6 segue aberta, de prioridade baixa).
+- **Decisão D5** (mesma sessão): usuário preferiu **contato por consentimento, como amizade**:
+  níveis de descoberta configuráveis (Público / só por link / Fechado); desconhecido só pode enviar
+  solicitação de amizade, que cai numa caixa própria, não exige resposta e não avisa quem enviou;
+  grupos/workspaces exigem convite e aceite. Rate limit por identidade como camada mínima; PoW/depósito
+  descartados. P11 aberta (solicitação sem servidor). P5 resolvida.
 - **Ressalva**: parte do `STUDY.md` vem de conhecimento prévio do modelo (marcada no texto) e precisa
   ser verificada na documentação oficial antes de virar premissa.
-- **Próximo passo**: sessão de decisões (0.2–0.5): D3, D2, D4, D1, com as perguntas abertas de
-  `STUDY.md` como roteiro. Ainda sem código.
+- **Próximo passo**: Fase 1.1 (setup do workspace Rust com os módulos identity, transport, overlay,
+  crypto e chat). D6 (metadados) pode esperar até a Fase 4. Ainda sem código.

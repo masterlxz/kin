@@ -14,10 +14,10 @@
 **Etapas**:
 - [x] 0.1 — Estudar o prior art (`ROADMAP.md`), respondendo para cada um: *por que ele fez a escolha
   que fez para mensagens offline e NAT?* — feito na Sessão 2, ver `STUDY.md`
-- [ ] 0.2 — Decidir D3 (stack: `rust-libp2p` vs `iroh`)
-- [ ] 0.3 — Decidir D2 (E2EE: MLS vs Double Ratchet)
-- [ ] 0.4 — Decidir D4 (posicionamento do produto)
-- [ ] 0.5 — Decidir D1 (fallback/mailbox do dia zero) — necessário só a partir da Fase 3, mas molda a
+- [x] 0.2 — Decidir D3 (stack: `rust-libp2p` vs `iroh`) — **rust-libp2p** (Sessão 2)
+- [x] 0.3 — Decidir D2 (E2EE: MLS vs Double Ratchet) — **MLS/openmls** (Sessão 2)
+- [x] 0.4 — Decidir D4 (posicionamento do produto) — **híbrido pessoal + workspaces, threads em todo o app** (Sessão 2)
+- [x] 0.5 — Decidir D1 (fallback/mailbox do dia zero) — **outbox → Nostr → peers** (Sessão 2). Necessário só a partir da Fase 3, mas molda a
   abstração de transporte desde a Fase 1
 
 ---
@@ -32,7 +32,7 @@
 - [ ] 1.3 — Descoberta em LAN via mDNS
 - [ ] 1.4 — Conexão direta pela internet (IP alcançável)
 - [ ] 1.5 — E2EE 1:1 (conforme D2)
-- [ ] 1.6 — Chat 1:1 mínimo (desktop primeiro)
+- [ ] 1.6 — Chat 1:1 mínimo (desktop primeiro); formato de mensagem já com `parent_message_id` para threads (D4)
 - [ ] 1.7 — Testes de integração com dois nós
 
 **Critério de pronto**: Fabio e amigo conversam na mesma rede e pela internet quando há conectividade
@@ -48,7 +48,7 @@ direta.
 - [ ] 2.1 — Hole punching (ex.: DCUtR + AutoNAT)
 - [ ] 2.2 — Relay público/de peer como fallback (circuit relay v2 ou equivalente)
 - [ ] 2.3 — Lista de relays candidatos + medição/ranking local
-- [ ] 2.4 — Convite por QR/link (endereços + chave pública, padrão do pareamento QR do TruthID)
+- [ ] 2.4 — Convite por QR/link (endereços + chave pública, padrão do pareamento QR do TruthID); base do modelo de contato por consentimento (D5)
 
 **Critério de pronto**: conversam atrás de CGNAT sem nenhum dos dois subir servidor.
 
@@ -61,7 +61,7 @@ direta.
 **Etapas** (preliminares):
 - [ ] 3.1 — Abstração de transporte de mailbox (trocar o backend sem mexer no resto)
 - [ ] 3.2 — Outbox local (entrega na janela simultânea)
-- [ ] 3.3 — Backend de mailbox de fallback (conforme D1 — hipótese: relays Nostr)
+- [ ] 3.3 — Backend de mailbox de fallback: relays Nostr (NIP-17/59, conforme D1)
 - [ ] 3.4 — Replicação em N mailboxes com TTL
 - [ ] 3.5 — Multi-device (vários devices por identidade, sincronização)
 
@@ -75,8 +75,8 @@ direta.
 
 **Etapas** (preliminares):
 - [ ] 4.1 — `ANNOUNCE` assinado + gossip
-- [ ] 4.2 — DHT (Kademlia) para `peer_id → onde encontrar`
-- [ ] 4.3 — App como relay/mailbox com limites configuráveis (`CONTEXT.md`, "App como relay")
+- [ ] 4.2 — DHT (Kademlia) para `peer_id → onde encontrar` e, no nível de descoberta "Público", pesquisa por identidade (D5)
+- [ ] 4.3 — App como relay/mailbox (peers como mailbox, conforme D1) com limites configuráveis (`CONTEXT.md`, "App como relay")
 - [ ] 4.4 — Desktop como daemon (relay natural da rede)
 
 **Critério de pronto**: 10–50 peers; mensagem encaminhada por peers intermediários.
@@ -88,7 +88,7 @@ direta.
 **Objetivo**: Uso diário real por um grupo pequeno.
 
 **Etapas** (preliminares):
-- [ ] 5.1 — Grupos/canais (conforme D2/D4)
+- [ ] 5.1 — Grupos/canais e workspaces (conforme D2/D4; ver P10)
 - [ ] 5.2 — Arquivos (P2P direto ou chunks por relay, com limite de tamanho em app-relay)
 - [ ] 5.3 — Presença
 - [ ] 5.4 — Respostas/reactions

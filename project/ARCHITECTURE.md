@@ -10,11 +10,11 @@
 | Descoberta de peers | Pseudo-blockchain de entradas vs registros assinados + gossip + DHT | **Registros assinados + gossip + DHT** ✓ — sem consenso global; last-writer-wins pelo timestamp assinado |
 | Protocolo de mídia (chamadas) | Próprio vs WebRTC | **WebRTC** ✓ — não inventar protocolo de mídia |
 | Background no mobile | No MVP vs depois | **Depois** ✓ — MVP: "quando o app está ativo, participa plenamente" |
-| D1 — Fallback/mailbox do dia zero | Ver D1 abaixo | **Em aberto** — hipótese: d + b, com a só para hole punching |
-| D2 — E2EE | MLS vs Double Ratchet + sender keys | **Em aberto** — hipótese: MLS para tudo |
-| D3 — Stack | `rust-libp2p` vs `iroh` | **Em aberto** — núcleo em Rust confirmado; Tauri (desktop) + Flutter via FFI (mobile) no padrão do TruthID |
-| D4 — Posicionamento do produto | WhatsApp-like vs Slack/Discord-like vs broadcast | **Em aberto** |
-| D5 — Anti-spam / Sybil | Rate limit, PoW, convites, reputação TruthID, depósito | **Em aberto** |
+| D1 — Fallback/mailbox do dia zero | Ver D1 abaixo | **Outbox → Nostr → peers** ✓ — decidido na Sessão 2 (2026-10-06), por fases. Ver "D1 — decisão" abaixo |
+| D2 — E2EE | MLS vs Double Ratchet + sender keys | **MLS (`openmls`)** ✓ — decidido na Sessão 2 (2026-10-06), para 1:1 e grupos. Ver "D2 — decisão" abaixo |
+| D3 — Stack | `rust-libp2p` vs `iroh` | **`rust-libp2p`** ✓ — decidido na Sessão 2 (2026-10-06). Núcleo em Rust; Tauri (desktop) + Flutter via FFI (mobile) no padrão do TruthID. Ver "D3 — decisão" abaixo |
+| D4 — Posicionamento do produto | WhatsApp-like vs Slack/Discord-like vs broadcast | **Híbrido** ✓ — decidido na Sessão 2 (2026-10-06): pessoal estilo WhatsApp + workspaces estilo Slack/Discord, com threads em todo o app. Ver "D4 — decisão" abaixo |
+| D5 — Anti-spam / Sybil | Rate limit, PoW, convites, reputação TruthID, depósito | **Contato por consentimento (modelo de amizade)** ✓ — decidido na Sessão 2 (2026-10-06). Ver "D5 — decisão" abaixo |
 | D6 — Metadados | Quanto de privacidade de metadados no MVP | **Em aberto** — provavelmente pouco no MVP; resto na Fase 7 |
 
 ---
@@ -39,12 +39,64 @@ offline.
 Hipótese a validar: **d + b como fallback**, com **a** só para hole punching. Transporte abstrato
 para trocar o backend de mailbox sem mexer no resto.
 
+#### D1 — decisão (Sessão 2): outbox local → relays Nostr → peers como mailbox
+
+Escolhido conforme a recomendação do assistente. Entrega por fases, sempre atrás da abstração de
+transporte de mailbox (Fase 3.1), para o backend ser trocável sem mexer no resto.
+
+| Fase | Mailbox |
+|---|---|
+| 1–2 | **Só outbox local**: entrega quando os dois estão online (opção **d**). O foco é provar conexão direta, hole punching e relay de fallback sem misturar com mailbox |
+| 3 | **Relays Nostr** como 1º backend (opção **b**): gift wrap NIP-17/59, publicação nos relays da lista de DMs do destinatário (kind 10050), **replicação em N relays com TTL** |
+| 4 | **Peers como mailbox** (app-relay / desktop daemon com limites, opção **e** como item da lista): reduz a dependência de terceiros |
+
+`libp2p` circuit relay v2 (opção **a**) continua só para hole punching, não como mailbox.
+Opção **c** (SimpleX) descartada por ora: exigiria compatibilizar/reimplementar o protocolo.
+
+**Custos assumidos**:
+- Relays Nostr enxergam metadados (timing, tamanho, chave de destino); retenção e anti-spam variam
+  por relay e alguns são pagos. Tratar relay como **não confiável e efêmero**: nada depende de um
+  relay específico (daí N réplicas e TTL).
+- Mensagens MLS (commits, welcomes) são maiores que um DM comum e podem bater em limites de tamanho
+  de relay; medir na Fase 3 e fragmentar se preciso.
+- Durante as Fases 1–2 a UX é **síncrona** (os dois online), como o Briar sem mailbox.
+- Mailbox de relays públicos **não resolve histórico de workspace** (retenção curta). Isso fica em
+  P10 e provavelmente é resolvido por sincronização entre membros, não por relay.
+
+**Interação com P9** (ordenação de commits MLS): a mailbox entrega commits fora de ordem e com
+atraso, então o desenho de P9 deve assumir entrega **at-least-once, sem ordem garantida**.
+
+**Reabrir se**: relays Nostr se mostrarem hostis (retenção/anti-spam) a mensagens MLS ou se a
+privacidade de metadados virar requisito do MVP (D6), caso em que a opção **c** volta à mesa.
+
 ### D2 — E2EE
 
 - **MLS (RFC 9420)**, ex.: crate `openmls`: padrão para grupos, escala bem, multi-device nativo. Mais complexo.
 - **Double Ratchet (estilo Signal)** para 1:1 + sender keys para grupos: maduro, porém menos elegante
   para grupos grandes e multi-device.
 - Hipótese: MLS para tudo, para não ter dois sistemas.
+
+#### D2 — decisão (Sessão 2): MLS via `openmls`
+
+Escolhido conforme a recomendação do assistente: um único sistema para 1:1 e grupos, multi-device
+nativo (Fase 3.5) e independente do transporte, o que importa porque a mailbox (D1) pode ser
+qualquer backend.
+
+**Custos assumidos**:
+- `openmls` ainda está em 0.x (0.9.0-rc.x na pesquisa); fixar versão e acompanhar breaking changes.
+  Uma dependência criptográfica (libcrux, para ML-KEM) é pré-1.0 e sem auditoria completa, então
+  usar apenas as cipher suites clássicas por padrão. *(verificar na doc do `openmls`)*
+- MLS pressupõe um **Delivery Service** que ordena commits. Sem servidor, será preciso definir como
+  ordenar/resolver commits concorrentes entre peers e como um device volta de offline (aplicar
+  commits perdidos). **Isso é o principal risco técnico e vai para a Fase 1/3** (ver P9).
+- Mais complexo que Double Ratchet para o caso 1:1 simples; um grupo de 2 pessoas já usa a árvore MLS.
+
+**Mitigações**: manter o E2EE atrás de um módulo `crypto` com interface própria (encrypt/decrypt por
+conversa), sem vazar tipos do `openmls` para o resto; spike curto de 1:1 na Fase 1.5 antes de
+construir sobre ele.
+
+**Reabrir se**: o spike mostrar que ordenação de commits sem servidor é inviável ou frágil em P2P;
+plano B: Double Ratchet (ex.: `vodozemac`; `libsignal` é AGPLv3) para 1:1 e sender keys para grupos.
 
 ### D3 — Stack
 
@@ -53,11 +105,55 @@ para trocar o backend de mailbox sem mexer no resto.
 - Alternativa a avaliar: `iroh` (Rust, QUIC, hole punching + relays próprios), mais simples que
   libp2p, porém com relay de modelo mais centralizado por padrão.
 
+#### D3 — decisão (Sessão 2): `rust-libp2p`
+
+Escolhido sobre `iroh` (recomendação do assistente era iroh; o usuário optou por libp2p).
+
+**Ganhos**: mDNS, Kademlia, GossipSub, AutoNAT e DCUtR prontos (Fases 1 e 4 quase de graça);
+ecossistema amplo e prior art (Berty) na mesma stack.
+
+**Custos assumidos** (de `STUDY.md`):
+- DCUtR mede ~70% de hole punching em escala (IMC '26), então ~30% dos pares precisam de relay que
+  **carregue tráfego**. O circuit relay v2 padrão limita tempo e bytes e não serve para isso; o relay
+  de fallback da Fase 2 terá de ser desenhado (relays de peers/dedicados, com limites configuráveis).
+- Mais boilerplate (`NetworkBehaviour`) e crates com versões que quebram; fixar versões do `libp2p`.
+- Sem caminho FFI oficial: `flutter_rust_bridge` por nossa conta (a validar na Fase 5.6).
+
+**Mitigações**: manter o transporte atrás da abstração (`transport`), já exigida por D1, para que
+`iroh` (ou o crate `libp2p-iroh`, WIP) possa ser avaliado depois sem reescrever o resto.
+
+**Reabrir se**: o spike da Fase 1 mostrar que o relay de fallback custa mais do que o esperado.
+
 ### D4 — Posicionamento do produto
 
 WhatsApp-like, Slack/Discord-like ou broadcast (Twitter-like)? Muda modelo de dados, grupos e
 moderação. Broadcast 1→N é tecnicamente bem mais simples (gossip/pub-sub puro, sem E2EE de grupo
 privado) e pode ser um MVP mais barato.
+
+#### D4 — decisão (Sessão 2): híbrido pessoal + workspaces, threads em todo lugar
+
+Decisão do usuário (não era nenhuma das opções puras). Em palavras do usuário: no pessoal é "tipo um
+WhatsApp", mas dá para entrar em **workspaces** de trabalho ou de projetos de amigos; e detalhes como
+**comentar uma mensagem em thread** (estilo Slack) devem existir **no app todo**.
+
+**Modelo conceitual (proposta do assistente, a refinar):**
+- **Espaço pessoal**: contatos, conversas 1:1 e grupos pequenos (convite por QR/link).
+- **Workspace**: contêiner com membros e **canais** (privados ou abertos aos membros). Uma pessoa
+  pertence a vários workspaces com a mesma identidade.
+- **Thread**: qualquer mensagem, em qualquer conversa (1:1, grupo ou canal), pode ter respostas em
+  thread. No modelo de dados isso é só `parent_message_id` + `thread_root_id` na mensagem.
+
+**Consequências nas outras decisões:**
+- **D2 (MLS)**: encaixa bem. Cada conversa/canal vira um grupo MLS. Threads não criam grupo novo,
+  são mensagens dentro do mesmo grupo. Workspaces grandes pedem atenção ao custo de commits (P10).
+- **D1 (mailbox)**: o volume e o histórico de canais é maior que o de 1:1, então a retenção
+  curta de relays públicos (ex.: Nostr) não basta para histórico de workspace. Ver P10.
+- **D5 (anti-spam)**: workspaces são fechados por convite, o que reduz a superfície de spam.
+- **Fases**: workspaces e papéis ficam para a Fase 5/6; **threads entram no modelo de mensagem
+  desde a Fase 1** (campo `parent_message_id` desde o primeiro formato), porque mudar formato
+  de mensagem depois é caro. A UI de thread pode vir depois, mas o campo não.
+
+**Fora do escopo por ora**: canais públicos abertos a estranhos (isso é broadcast e puxa D5).
 
 ### D5 — Anti-spam / Sybil
 
@@ -65,6 +161,48 @@ Criar 1 milhão de identidades é grátis. Candidatos: rate limiting por identid
 no primeiro contato, convites/trust graph, reputação atrelada ao TruthID, depósito em casos
 específicos. Relays públicos (principalmente Nostr) já têm as próprias políticas, e o app precisa
 conviver com elas.
+
+#### D5 — decisão (Sessão 2): contato por consentimento, no modelo de amizade
+
+Decisão do usuário: funcionar **como amizade**. Ninguém te contata, entra em conversa ou workspace
+sem consentimento; o que varia é o quão fácil é **te encontrar**. O usuário foi explícito: prefere
+controle de consentimento a mecanismos técnicos de custo (PoW, depósito).
+
+**Níveis de descoberta** (configurável por identidade, o usuário escolhe):
+- **Público**: qualquer um com o seu link/QR **ou que te pesquise** te encontra e pode te enviar
+  solicitação de amizade.
+- **Só por link**: só quem tem o seu link/QR consegue enviar solicitação; não aparece em pesquisa.
+- **Fechado**: ninguém envia solicitação; você é quem inicia contatos (e aceita convites que
+  gerou).
+
+**Regras (valem em qualquer nível):**
+- Solicitação de amizade é a **única** coisa que um desconhecido pode enviar. Não abre conversa,
+  não entra em grupo/workspace, não gera notificação de mensagem.
+- Solicitações chegam numa **caixa de entrada própria** e **não exigem resposta**: você pode ignorar
+  para sempre. Ignorar não avisa o remetente (sem recibo de rejeição).
+- Só depois de **aceitar** o contato (ou de ter sido convidado por um link seu) há conversa 1:1.
+- Entrar em **grupos e workspaces** exige convite e aceite explícitos de quem entra. Estar em um
+  workspace não dá permissão de DM com os membros: contato continua sendo um consentimento à parte
+  (configurável: "membros do mesmo workspace podem me enviar solicitação").
+- **Bloquear** descarta tudo da identidade bloqueada sem notificá-la.
+
+**Camada técnica mínima por baixo** (defesa em profundidade): rate limit por identidade no envio de
+solicitações e tamanho máximo da solicitação (sem anexos/mídia), porque a solicitação é o único
+vetor aberto. PoW, depósito e reputação do TruthID ficam **descartados por ora**; reputação do
+TruthID pode voltar como filtro opcional ("só aceitar solicitações de identidades verificadas").
+
+**Consequências:**
+- **Fase 2 (convite por QR/link)** já é o mecanismo principal do nível "só por link". Pesquisa por
+  nome/identidade só é possível com descoberta distribuída (**DHT, Fase 4**); até lá, só link/QR.
+- A solicitação de amizade é um tipo de mensagem pré-contato: precisa de formato próprio, assinado,
+  que **não exige sessão MLS** (a sessão nasce no aceite). Ver P11.
+- **D1**: quem te envia solicitação precisa de um lugar para entregá-la mesmo você offline; o endpoint
+  de "solicitações" é público por design e vira alvo de spam nos relays/mailboxes (P11).
+- **D6**: o nível "Público" expõe que você existe e quando está acessível; o nível "Fechado" é o
+  mais privado.
+
+**Reabrir se**: a caixa de solicitações virar canal de spam na prática (caso em que entram PoW leve
+ou filtro por reputação TruthID).
 
 ### D6 — Metadados
 
