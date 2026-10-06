@@ -4,7 +4,7 @@
 > Toda pendência encontrada em qualquer arquivo do projeto deve ser registrada aqui com um ID único.
 > Ao resolver uma, marcar como `✅ Resolvida` com a sessão em que foi corrigida.
 >
-> Última atualização: 2026-09-27 (Sessão 1)
+> Última atualização: 2026-10-06 (Sessão 2)
 
 ---
 
@@ -22,14 +22,10 @@
 | P6 | **D6 — Privacidade de metadados** — quanto entra no MVP vs Fase 7 | Spec original (Sessão 1) | Baixa |
 | P7 | **Nome definitivo** — `Kin` é provisório/"meio fixo"; pode mudar | Sessão 1 | Baixa |
 
-### Estudo
-
-| ID | Item | Onde se originou | Prioridade |
-|---|---|---|---|
-| P8 | **Estudar o prior art antes de codar** (lista em `ROADMAP.md`) — para cada projeto, *por que ele fez a escolha que fez para mensagens offline e NAT?* | Spec original (Sessão 1) | Alta (Fase 0) |
-
 ---
 
 ## Resolvidas
 
-*(nenhuma ainda)*
+| ID | Item | Resolvida em |
+|---|---|---|
+| P8 | **Estudar o prior art antes de codar** — achados em `STUDY.md`; 4 perguntas abertas listadas lá para a fase de decisões | ✅ Sessão 2 |

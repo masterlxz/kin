@@ -12,8 +12,8 @@
 **Objetivo**: Fechar as decisões que bloqueiam a Fase 1 antes de escrever código.
 
 **Etapas**:
-- [ ] 0.1 — Estudar o prior art (`ROADMAP.md`), respondendo para cada um: *por que ele fez a escolha
-  que fez para mensagens offline e NAT?*
+- [x] 0.1 — Estudar o prior art (`ROADMAP.md`), respondendo para cada um: *por que ele fez a escolha
+  que fez para mensagens offline e NAT?* — feito na Sessão 2, ver `STUDY.md`
 - [ ] 0.2 — Decidir D3 (stack: `rust-libp2p` vs `iroh`)
 - [ ] 0.3 — Decidir D2 (E2EE: MLS vs Double Ratchet)
 - [ ] 0.4 — Decidir D4 (posicionamento do produto)
