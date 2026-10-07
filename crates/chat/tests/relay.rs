@@ -2,39 +2,11 @@
 
 mod common;
 
-use common::{WAIT, connect_until_ready_within, receive_while_driving, wait_for};
+use common::{WAIT, connect_until_ready_within, receive_while_driving, start_relay, wait_for};
 use kin_chat::{Chat, ChatEvent};
 use kin_identity::{DeviceKey, IdentityProvider, StandaloneIdentity};
-use kin_transport::{Multiaddr, Node, NodeConfig, NodeEvent, Protocol, RelayLimits};
+use kin_transport::NodeConfig;
 use tokio::time::timeout;
-
-/// Sobe um nó relay em segundo plano e devolve o endereço dele (com `/p2p/<id>`).
-async fn start_relay() -> Multiaddr {
-    let key = DeviceKey::generate();
-    let mut relay = Node::new(
-        key.keypair().clone(),
-        NodeConfig {
-            mdns: false,
-            relay_server: Some(RelayLimits::default()),
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    relay
-        .listen_on("/ip4/127.0.0.1/tcp/0".parse().unwrap())
-        .unwrap();
-    let addr = loop {
-        if let NodeEvent::Listening(addr) = relay.next_event().await {
-            break addr;
-        }
-    };
-    tokio::spawn(async move {
-        loop {
-            relay.next_event().await;
-        }
-    });
-    addr.with(Protocol::P2p(key.peer_id()))
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn encrypted_conversation_works_through_a_relay() {

@@ -1,20 +1,21 @@
 //! CLI de desenvolvimento: sobe um nó Kin e conversa 1:1 pelo terminal.
 //!
 //! ```text
-//! kin [--data-dir DIR] [--listen ADDR] [--dial ADDR] [--relay ADDR]... [--external-addr ADDR]...
-//!     [--no-mdns]
+//! kin [--data-dir DIR] [--listen ADDR] [--dial ADDR] [--accept LINK] [--relay ADDR]...
+//!     [--external-addr ADDR]... [--no-mdns]
 //! kin --serve-relay [--listen ADDR] [--external-addr ADDR]... [--relay-max-bytes N]
 //!     [--relay-max-circuits N]
 //! ```
 //!
 //! Atrás de NAT, `--relay ADDR` (que termina em `/p2p/<relay>`) reserva um lugar no relay e imprime o
 //! endereço de circuito que o outro lado deve passar a `--dial`. `--serve-relay` sobe só um relay
-//! (sem chat). Na LAN, duas instâncias se acham sozinhas via mDNS. Linhas digitadas vão ao peer da conversa;
+//! (sem chat). `/invite` imprime o seu link de convite (e um QR) e `--accept LINK` / `/accept LINK`
+//! abre o de outra pessoa: o link prova quem é e por onde alcançá-la. Na LAN, duas instâncias se acham sozinhas via mDNS. Linhas digitadas vão ao peer da conversa;
 //! `/r <id> texto` responde à mensagem `<id>` (thread); `/quit` sai.
 
 use std::path::{Path, PathBuf};
 
-use kin_chat::{Chat, ChatEvent, Message, MessageId};
+use kin_chat::{Chat, ChatEvent, Invite, Message, MessageId};
 use kin_identity::{DeviceKey, StandaloneIdentity};
 use kin_transport::{Multiaddr, Node, NodeConfig, NodeEvent, PeerId, RelayLimits};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -23,6 +24,7 @@ struct Args {
     data_dir: PathBuf,
     listen: Option<Multiaddr>,
     dial: Option<Multiaddr>,
+    accept: Option<String>,
     relays: Vec<Multiaddr>,
     external_addrs: Vec<Multiaddr>,
     serve_relay: bool,
@@ -35,6 +37,7 @@ fn parse_args() -> Result<Args, String> {
         data_dir: PathBuf::from(".kin"),
         listen: None,
         dial: None,
+        accept: None,
         relays: Vec::new(),
         external_addrs: Vec::new(),
         serve_relay: false,
@@ -48,6 +51,7 @@ fn parse_args() -> Result<Args, String> {
             "--data-dir" => args.data_dir = value()?.into(),
             "--listen" => args.listen = Some(value()?.parse().map_err(|e| format!("{e}"))?),
             "--dial" => args.dial = Some(value()?.parse().map_err(|e| format!("{e}"))?),
+            "--accept" => args.accept = Some(value()?),
             "--relay" => args
                 .relays
                 .push(value()?.parse().map_err(|e| format!("{e}"))?),
@@ -147,6 +151,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(addr) = args.dial {
         chat.dial(addr)?;
     }
+    if let Some(link) = &args.accept {
+        accept(&mut chat, link);
+    }
 
     let mut seen: Vec<MessageId> = Vec::new();
     let mut current: Option<PeerId> = None;
@@ -162,6 +169,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     break;
                 }
                 if line.is_empty() {
+                    continue;
+                }
+                if line == "/invite" {
+                    print_invite(&chat);
+                    continue;
+                }
+                if let Some(link) = line.strip_prefix("/accept ") {
+                    accept(&mut chat, link);
                     continue;
                 }
                 let Some(peer) = current else {
@@ -192,6 +207,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+/// Imprime o convite deste nó (link e QR). Sem endereço compartilhável ainda, avisa.
+fn print_invite(chat: &Chat) {
+    let invite = chat.shareable_invite();
+    if invite.addrs().is_empty() {
+        println!(
+            "(sem endereço compartilhável ainda: espere a reserva no relay ou use --external-addr)"
+        );
+        return;
+    }
+    let link = invite.to_link();
+    match qrcode::QrCode::new(link.as_bytes()) {
+        Ok(code) => println!(
+            "{}",
+            code.render::<qrcode::render::unicode::Dense1x2>()
+                .quiet_zone(true)
+                .build()
+        ),
+        Err(e) => println!("(não deu para gerar o QR: {e})"),
+    }
+    println!("convite: {link}");
+}
+
+/// Abre um link de convite: disca o dono e exige a identidade do convite.
+fn accept(chat: &mut Chat, link: &str) {
+    match Invite::from_link(link).and_then(|invite| {
+        println!(
+            "convite de {} ({} endereço(s))",
+            invite.identity().to_base58(),
+            invite.addrs().len()
+        );
+        chat.accept(&invite)
+    }) {
+        Ok(()) => {}
+        Err(e) => println!("(convite não aceito: {e})"),
+    }
 }
 
 /// Modo relay dedicado: só encaminha circuitos para os outros, sem chat.

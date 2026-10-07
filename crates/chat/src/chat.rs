@@ -7,7 +7,7 @@ use kin_identity::{DeviceKey, IdentityId, IdentityProvider};
 use kin_transport::{Multiaddr, NatStatus, Node, NodeConfig, NodeEvent, PeerId, SendId};
 
 use crate::wire::Envelope;
-use crate::{Error, Message, MessageId};
+use crate::{Error, Invite, Message, MessageId};
 
 /// O que o [`Chat`] avisa à aplicação.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +78,8 @@ pub struct Chat {
     device: CryptoDevice,
     conversations: HashMap<PeerId, Conversation>,
     pending: HashMap<SendId, Option<MessageId>>,
+    /// Identidade exigida de cada peer discado por convite (`accept`), até a conversa ficar pronta.
+    expected: HashMap<PeerId, IdentityId>,
     /// Eventos já produzidos mas ainda não entregues, em ordem.
     queue: std::collections::VecDeque<ChatEvent>,
 }
@@ -129,6 +131,7 @@ impl Chat {
             device,
             conversations: HashMap::new(),
             pending: HashMap::new(),
+            expected: HashMap::new(),
             queue: Default::default(),
         })
     }
@@ -159,6 +162,29 @@ impl Chat {
     /// Endereço pelo qual outros discam este nó através do relay `relay_addr`.
     pub fn circuit_address(&self, relay_addr: &Multiaddr) -> Multiaddr {
         self.node.circuit_address(relay_addr)
+    }
+
+    /// Convite para este device com os endereços `addrs`. Quem o aceitar só conversa se do outro lado
+    /// estiver exatamente esta identidade, neste Peer ID.
+    pub fn invite(&self, addrs: Vec<Multiaddr>) -> Invite {
+        Invite::new(self.device.certificate().clone(), addrs)
+    }
+
+    /// Convite com os endereços que o nó considera compartilháveis (circuito de relay, externos e
+    /// escuta de IP global; ver `Node::shareable_addresses`). Vazio se ainda não há nenhum.
+    pub fn shareable_invite(&self) -> Invite {
+        self.invite(self.node.shareable_addresses())
+    }
+
+    /// Aceita um convite: disca o dono dele e, no handshake, **exige** a identidade do convite.
+    /// Identidade errada vira `ChatEvent::Dropped` e nunca uma conversa.
+    pub fn accept(&mut self, invite: &Invite) -> Result<(), Error> {
+        let peer = invite.peer_id();
+        if peer == self.peer_id() {
+            return Err(Error::InvalidInvite);
+        }
+        self.expected.insert(peer, invite.identity().clone());
+        Ok(self.node.dial_peer(peer, invite.addrs().to_vec())?)
     }
 
     /// Há conversa E2EE pronta com o peer?
@@ -270,7 +296,7 @@ impl Chat {
         let invite = conversation.invite(
             key_package,
             &Expected {
-                identity: None,
+                identity: self.expected.get(&peer),
                 peer: Some(&peer),
             },
         )?;
@@ -286,7 +312,7 @@ impl Chat {
             &self.device,
             welcome,
             &Expected {
-                identity: None,
+                identity: self.expected.get(&peer),
                 peer: Some(&peer),
             },
         )?;
@@ -297,6 +323,7 @@ impl Chat {
         self.device
             .remember(&peer.to_string(), &conversation.id())?;
         self.conversations.insert(peer, conversation);
+        self.expected.remove(&peer);
         self.announce_if_ready(peer);
         Ok(())
     }

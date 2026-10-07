@@ -1,6 +1,8 @@
 use std::rc::Rc;
 
-use kin_identity::{IdentityId, IdentityProvider, PublicKey, public_key_from_ed25519};
+use kin_identity::{
+    DeviceCertificate, IdentityId, IdentityProvider, PublicKey, public_key_from_ed25519,
+};
 use openmls::prelude::tls_codec::Serialize as _;
 use openmls::prelude::{
     BasicCredential, Ciphersuite, CredentialWithKey, KeyPackage, SignatureScheme,
@@ -18,6 +20,7 @@ pub(crate) struct Inner {
     pub(crate) provider: Provider,
     pub(crate) signer: SignatureKeyPair,
     pub(crate) credential: CredentialWithKey,
+    pub(crate) certificate: DeviceCertificate,
     pub(crate) identity: IdentityId,
 }
 
@@ -88,6 +91,7 @@ impl CryptoDevice {
             provider,
             signer,
             credential,
+            certificate,
             identity: identity.id(),
         })))
     }
@@ -101,6 +105,12 @@ impl CryptoDevice {
     /// Pares `(label, conversation_id)` guardados com [`Self::remember`].
     pub fn remembered(&self) -> Result<Vec<(String, Vec<u8>)>, Error> {
         self.0.provider.remembered()
+    }
+
+    /// Certificado deste device (identidade + chave MLS + chave de rede): é o que um convite carrega
+    /// para provar quem é e por qual Peer ID alcançá-lo.
+    pub fn certificate(&self) -> &DeviceCertificate {
+        &self.0.certificate
     }
 
     /// Identidade a quem este device pertence.

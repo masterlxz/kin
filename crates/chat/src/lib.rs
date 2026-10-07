@@ -5,9 +5,11 @@
 
 mod chat;
 mod error;
+mod invite;
 mod message;
 mod wire;
 
 pub use chat::{Chat, ChatEvent};
 pub use error::Error;
+pub use invite::Invite;
 pub use message::{Message, MessageId};

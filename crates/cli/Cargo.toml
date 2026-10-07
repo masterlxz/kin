@@ -20,3 +20,4 @@ kin-overlay.workspace = true
 kin-crypto.workspace = true
 kin-chat.workspace = true
 tokio.workspace = true
+qrcode.workspace = true

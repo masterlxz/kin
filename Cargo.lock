@@ -1860,6 +1860,7 @@ dependencies = [
 name = "kin-chat"
 version = "0.0.1"
 dependencies = [
+ "base64",
  "kin-crypto",
  "kin-identity",
  "kin-transport",
@@ -1878,6 +1879,7 @@ dependencies = [
  "kin-identity",
  "kin-overlay",
  "kin-transport",
+ "qrcode",
  "tokio",
 ]
 
@@ -3344,6 +3346,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quinn"

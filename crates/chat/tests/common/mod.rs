@@ -4,8 +4,8 @@
 use std::time::Duration;
 
 use kin_chat::{Chat, ChatEvent, Message};
-use kin_identity::IdentityId;
-use kin_transport::Multiaddr;
+use kin_identity::{DeviceKey, IdentityId};
+use kin_transport::{Multiaddr, Node, NodeConfig, NodeEvent, Protocol, RelayLimits};
 use tokio::time::timeout;
 
 pub const WAIT: Duration = Duration::from_secs(20);
@@ -102,4 +102,32 @@ pub async fn receive_while_driving(
     })
     .await
     .expect("sem mensagem")
+}
+
+/// Sobe um nó relay em segundo plano e devolve o endereço dele (com `/p2p/<id>`).
+pub async fn start_relay() -> Multiaddr {
+    let key = DeviceKey::generate();
+    let mut relay = Node::new(
+        key.keypair().clone(),
+        NodeConfig {
+            mdns: false,
+            relay_server: Some(RelayLimits::default()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    relay
+        .listen_on("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+        .unwrap();
+    let addr = loop {
+        if let NodeEvent::Listening(addr) = relay.next_event().await {
+            break addr;
+        }
+    };
+    tokio::spawn(async move {
+        loop {
+            relay.next_event().await;
+        }
+    });
+    addr.with(Protocol::P2p(key.peer_id()))
 }
