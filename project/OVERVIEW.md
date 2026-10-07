@@ -27,8 +27,8 @@ TruthID e o consome — não é um módulo de comunicação dentro do TruthID (i
 # Status Geral
 
 ```
-Fase 1 — Identidade local + conexão direta + chat 1:1 E2EE    [ ] Pendente
-Fase 2 — Hole punching + relay + convite por QR/link          [ ] Pendente
+Fase 1 — Identidade local + conexão direta + chat 1:1 E2EE    [x] Feita (falta teste em redes reais)
+Fase 2 — Hole punching + relay + convite por QR/link          [x] Feita no laboratório de NAT (falta teste em redes reais)
 Fase 3 — Store-and-forward (mailbox) + multi-device           [ ] Pendente
 Fase 4 — Overlay: gossip + DHT + app-relay com limites        [ ] Pendente
 Fase 5 — Grupos/canais, arquivos, presença, notificações      [ ] Pendente
@@ -37,5 +37,14 @@ Fase 7 — (opcional) Roteamento multi-hop / privado            [ ] Pendente
 Fase 8 — (opcional) Blockchain: registro, proof-of-relay      [ ] Pendente
 ```
 
-Próximo passo: estudar o prior art (`ROADMAP.md`) e fechar as decisões D1–D4 (`ARCHITECTURE.md`)
-antes de iniciar a Fase 1.
+Próximo passo: Fase 3 (mensagens para quem está offline: outbox, relays Nostr, multi-device). Antes de
+distribuir: teste manual em redes reais, QUIC no laboratório (P17), P13/P16/P18. Detalhes em `PHASE.md`,
+`PENDING.md` e `SESSIONS.md`.
+
+## O que existe hoje (Sessão 3)
+
+O trabalho está em **bibliotecas Rust** (o "motor"): `identity`, `transport`, `crypto`, `chat` em
+`crates/`. **Ainda não há app.** O crate `cli` é só uma **ferramenta de desenvolvimento**: um programa de
+terminal que liga o motor para ver tudo funcionando (conversar, `/invite`, relay) e que serve de base do
+laboratório de NAT (`lab/`). O app de verdade vem na Fase 5: desktop em Tauri e mobile em Flutter (FFI),
+ambos como "janelas" sobre o mesmo motor Rust.
