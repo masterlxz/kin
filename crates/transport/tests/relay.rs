@@ -40,6 +40,11 @@ async fn listen_loopback(node: &mut Node) -> Multiaddr {
 
 /// Sobe o relay em segundo plano e devolve o endereço dele (já com `/p2p/<id>`).
 async fn start_relay(limits: RelayLimits) -> Multiaddr {
+    start_relay_task(limits).await.0
+}
+
+/// Como [`start_relay`], devolvendo também a tarefa: abortá-la derruba o relay.
+async fn start_relay_task(limits: RelayLimits) -> (Multiaddr, tokio::task::JoinHandle<()>) {
     let key = DeviceKey::generate();
     let mut relay = node(
         &key,
@@ -51,12 +56,22 @@ async fn start_relay(limits: RelayLimits) -> Multiaddr {
     let addr = listen_loopback(&mut relay)
         .await
         .with(Protocol::P2p(key.peer_id()));
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         loop {
             relay.next_event().await;
         }
     });
-    addr
+    (addr, task)
+}
+
+fn peer_of(addr: &Multiaddr) -> PeerId {
+    addr.iter()
+        .filter_map(|p| match p {
+            Protocol::P2p(id) => Some(id),
+            _ => None,
+        })
+        .last()
+        .unwrap()
 }
 
 /// `a` pede reserva no relay; devolve quando o relay aceita.
@@ -298,4 +313,123 @@ async fn shareable_addresses_lists_external_and_circuit_but_not_loopback() {
             .all(|addr| !addr.to_string().contains("127.0.0.1")),
         "{shared:?}"
     );
+}
+
+fn relays_config(relays: Vec<Multiaddr>, relay_count: usize) -> NodeConfig {
+    NodeConfig {
+        relays,
+        relay_count,
+        ..plain()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reserves_on_as_many_relays_as_asked_and_keeps_the_rest_as_candidates() {
+    let (r1, r2, r3) = (
+        start_relay(RelayLimits::default()).await,
+        start_relay(RelayLimits::default()).await,
+        start_relay(RelayLimits::default()).await,
+    );
+    let mut a = node(
+        &DeviceKey::generate(),
+        relays_config(vec![r1.clone(), r2.clone(), r3.clone()], 2),
+    );
+
+    let mut reserved = Vec::new();
+    timeout(WAIT, async {
+        while reserved.len() < 2 {
+            if let NodeEvent::RelayReserved { relay } = a.next_event().await {
+                reserved.push(relay);
+            }
+        }
+    })
+    .await
+    .expect("não reservou em 2 relays");
+    reserved.sort();
+    let mut expected = vec![peer_of(&r1), peer_of(&r2)];
+    expected.sort();
+    assert_eq!(
+        reserved, expected,
+        "deveria usar os dois primeiros (empate)"
+    );
+
+    let stats = a.relay_stats();
+    assert_eq!(stats.len(), 3);
+    let unused = stats.iter().find(|s| s.peer == peer_of(&r3)).unwrap();
+    assert_eq!((unused.ok, unused.fail), (0, 0));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failover_moves_to_the_next_relay_when_the_reserved_one_goes_down() {
+    let (r1, task1) = start_relay_task(RelayLimits::default()).await;
+    let r2 = start_relay(RelayLimits::default()).await;
+    let key_a = DeviceKey::generate();
+    let mut a = node(&key_a, relays_config(vec![r1.clone(), r2.clone()], 1));
+
+    reserve(&mut a).await;
+    assert_eq!(
+        a.relay_stats()[0].peer,
+        peer_of(&r1),
+        "o primeiro da lista foi o escolhido"
+    );
+
+    task1.abort(); // o relay 1 some
+    let (mut lost, mut again) = (None, None);
+    timeout(WAIT, async {
+        while lost.is_none() || again.is_none() {
+            match a.next_event().await {
+                NodeEvent::RelayLost { relay } => lost = Some(relay),
+                NodeEvent::RelayReserved { relay } if lost.is_some() => again = Some(relay),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("não trocou de relay");
+    assert_eq!(lost, Some(peer_of(&r1)));
+    assert_eq!(again, Some(peer_of(&r2)));
+
+    let stats = a.relay_stats();
+    assert_eq!(
+        stats[0].peer,
+        peer_of(&r2),
+        "o que funciona sobe no ranking"
+    );
+    let down = stats.iter().find(|s| s.peer == peer_of(&r1)).unwrap();
+    assert!(down.fail >= 1);
+
+    // E o nó é de fato alcançável pelo relay novo.
+    let key_b = DeviceKey::generate();
+    let mut b = node(&key_b, plain());
+    b.dial(a.circuit_address(&r2)).unwrap();
+    let relayed = connect_via_relay(&mut a, &mut b, key_a.peer_id(), key_b.peer_id()).await;
+    assert!(relayed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unreachable_relay_at_startup_falls_back_to_the_next_candidate() {
+    let dead: Multiaddr = format!("/ip4/127.0.0.1/tcp/1/p2p/{}", PeerId::random())
+        .parse()
+        .unwrap();
+    let good = start_relay(RelayLimits::default()).await;
+    let mut a = node(
+        &DeviceKey::generate(),
+        relays_config(vec![dead.clone(), good.clone()], 1),
+    );
+
+    let (mut lost, mut reserved) = (None, None);
+    timeout(WAIT, async {
+        while lost.is_none() || reserved.is_none() {
+            match a.next_event().await {
+                NodeEvent::RelayLost { relay } => lost = Some(relay),
+                NodeEvent::RelayReserved { relay } => reserved = Some(relay),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("não caiu para o relay bom");
+    assert_eq!(lost, Some(peer_of(&dead)));
+    assert_eq!(reserved, Some(peer_of(&good)));
+    assert_eq!(a.relay_stats()[0].peer, peer_of(&good));
 }

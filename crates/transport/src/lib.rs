@@ -15,6 +15,7 @@ mod codec;
 mod config;
 mod error;
 mod node;
+mod relays;
 
 pub use codec::MAX_MESSAGE_SIZE;
 pub use config::{NodeConfig, RelayLimits};
@@ -22,3 +23,4 @@ pub use error::Error;
 pub use libp2p::multiaddr::Protocol;
 pub use libp2p::{Multiaddr, PeerId};
 pub use node::{NatStatus, Node, NodeEvent, SendId};
+pub use relays::{RelayStat, RelayState};

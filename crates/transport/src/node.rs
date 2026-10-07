@@ -15,6 +15,7 @@ use libp2p::{
 };
 
 use crate::codec::{MessageCodec, PROTOCOL};
+use crate::relays::{RelayBook, RelayStat};
 use crate::{Error, NodeConfig};
 
 /// Quanto esperar a reserva no relay antes de discar um circuito mesmo assim.
@@ -63,6 +64,9 @@ pub enum NodeEvent {
     NatStatus(NatStatus),
     /// O relay aceitou a reserva: este nó agora é alcançável pelo endereço de circuito.
     RelayReserved { relay: PeerId },
+    /// A reserva num relay acabou (a conexão caiu, ele recusou ou demorou demais); o nó já tenta o
+    /// próximo candidato. Se ainda havia outro relay reservado, os endereços de circuito dele valem.
+    RelayLost { relay: PeerId },
     /// Resultado de uma tentativa de hole punching com o peer (DCUtR).
     HolePunch {
         peer: PeerId,
@@ -101,6 +105,7 @@ pub struct Node {
     /// Há relays configurados e nenhuma reserva aceita ainda: discar um circuito agora faria o
     /// libp2p cancelar o dial (concorre com a conexão que abre a reserva), então ele espera.
     awaiting_relay: bool,
+    relays: RelayBook,
     deferred: Vec<DialOpts>,
     deferred_deadline: Option<tokio::time::Instant>,
 }
@@ -108,6 +113,7 @@ pub struct Node {
 impl Node {
     /// Cria o nó usando a chave do device (o Peer ID sai dela).
     pub fn new(keypair: Keypair, config: NodeConfig) -> Result<Self, Error> {
+        let relays = RelayBook::new(&config.relays, config.relay_count)?;
         let swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_tcp(
@@ -167,16 +173,15 @@ impl Node {
         let mut node = Self {
             swarm,
             queue: VecDeque::new(),
-            awaiting_relay: !config.relays.is_empty(),
+            awaiting_relay: !relays.is_empty(),
+            relays,
             deferred: Vec::new(),
             deferred_deadline: None,
         };
         for addr in &config.external_addrs {
             node.swarm.add_external_address(addr.clone());
         }
-        for relay in &config.relays {
-            node.use_relay(relay.clone())?;
-        }
+        node.fill_relays();
         Ok(node)
     }
 
@@ -191,12 +196,60 @@ impl Node {
         self.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)
     }
 
-    /// Conecta ao relay `addr` (que deve terminar em `/p2p/<peer id do relay>`) e pede uma reserva.
-    /// Quando aceita, chega [`NodeEvent::RelayReserved`] e o endereço de circuito aparece em
-    /// [`NodeEvent::Listening`]; outros peers discam `Node::circuit_address(addr)`.
-    pub fn use_relay(&mut self, addr: Multiaddr) -> Result<(), Error> {
-        self.swarm.listen_on(addr.with(Protocol::P2pCircuit))?;
+    /// Acrescenta `addr` (que deve terminar em `/p2p/<peer id do relay>`) aos relays candidatos. Se
+    /// ainda faltam reservas (`relay_count`), já tenta. Quando aceita, chega
+    /// [`NodeEvent::RelayReserved`] e o endereço de circuito aparece em [`NodeEvent::Listening`];
+    /// outros peers discam `Node::circuit_address(addr)`.
+    pub fn add_relay(&mut self, addr: Multiaddr) -> Result<(), Error> {
+        self.relays.add(addr)?;
+        self.awaiting_relay |= self.relays.active() == 0;
+        self.fill_relays();
         Ok(())
+    }
+
+    /// Relays candidatos, do melhor para o pior, com o que o nó mediu de cada um.
+    pub fn relay_stats(&self) -> Vec<RelayStat> {
+        self.relays.stats()
+    }
+
+    /// Pede reserva nos melhores candidatos até completar `relay_count`.
+    fn fill_relays(&mut self) {
+        let now = tokio::time::Instant::now();
+        while self.relays.wants_more() {
+            let Some(i) = self.relays.next_eligible() else {
+                break;
+            };
+            let circuit = self.relays.addr(i).clone().with(Protocol::P2pCircuit);
+            match self.swarm.listen_on(circuit) {
+                Ok(listener) => self.relays.mark_pending(i, listener, now),
+                Err(_) => {
+                    let relay = self.relays.mark_failed(i, now);
+                    self.queue.push_back(NodeEvent::RelayLost { relay });
+                }
+            }
+        }
+    }
+
+    /// Algo dos relays ou dos dials adiados venceu o prazo.
+    fn on_timer(&mut self) {
+        let now = tokio::time::Instant::now();
+        if self.deferred_deadline.is_some_and(|d| now >= d) {
+            self.flush_deferred();
+        }
+        for (i, listener) in self.relays.expired(now) {
+            self.swarm.remove_listener(listener);
+            let relay = self.relays.mark_failed(i, now);
+            self.queue.push_back(NodeEvent::RelayLost { relay });
+        }
+        self.relays.tick(now);
+        self.fill_relays();
+    }
+
+    fn next_deadline(&self) -> Option<tokio::time::Instant> {
+        [self.deferred_deadline, self.relays.next_deadline()]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// Endereço pelo qual outros alcançam este nó através do relay `relay_addr`.
@@ -295,11 +348,11 @@ impl Node {
             if let Some(event) = self.queue.pop_front() {
                 return event;
             }
-            let event = match self.deferred_deadline {
+            let event = match self.next_deadline() {
                 Some(deadline) => tokio::select! {
                     event = self.swarm.select_next_some() => event,
                     () = tokio::time::sleep_until(deadline) => {
-                        self.flush_deferred();
+                        self.on_timer();
                         continue;
                     }
                 },
@@ -345,6 +398,8 @@ impl Node {
                 SwarmEvent::Behaviour(BehaviourEvent::RelayClient(
                     relay::client::Event::ReservationReqAccepted { relay_peer_id, .. },
                 )) => {
+                    self.relays
+                        .mark_reserved(relay_peer_id, tokio::time::Instant::now());
                     self.flush_deferred();
                     return NodeEvent::RelayReserved {
                         relay: relay_peer_id,
@@ -383,6 +438,14 @@ impl Node {
                         return NodeEvent::PeerConnected(peer_id);
                     }
                     return route;
+                }
+                SwarmEvent::ListenerClosed { listener_id, .. } => {
+                    // O ouvinte de circuito de um relay fechou: a conexão caiu ou ele recusou.
+                    if let Some(i) = self.relays.find_listener(listener_id) {
+                        let relay = self.relays.mark_failed(i, tokio::time::Instant::now());
+                        self.fill_relays();
+                        return NodeEvent::RelayLost { relay };
+                    }
                 }
                 SwarmEvent::ConnectionClosed {
                     peer_id,

@@ -7,10 +7,14 @@ use libp2p::{Multiaddr, relay};
 pub struct NodeConfig {
     /// Descobrir e conectar a peers da LAN via mDNS.
     pub mdns: bool,
-    /// Relays a usar quando este nó está atrás de NAT: o nó conecta a cada um e pede uma reserva,
-    /// ganhando um endereço de circuito (`<relay>/p2p-circuit/p2p/<este peer>`) que outros podem
-    /// discar. Cada endereço precisa terminar em `/p2p/<peer id do relay>`.
+    /// Relays candidatos para quando este nó está atrás de NAT. O nó mede cada um (sucesso e
+    /// latência), pede reserva nos melhores (`relay_count`) e troca por outro quando um falha. Com
+    /// reserva, ganha um endereço de circuito (`<relay>/p2p-circuit/p2p/<este peer>`) que outros
+    /// podem discar. Cada endereço precisa terminar em `/p2p/<peer id do relay>`.
     pub relays: Vec<Multiaddr>,
+    /// Em quantos relays (dos melhores, ver [`NodeConfig::relays`]) manter reserva ao mesmo tempo.
+    /// Se um falha, o próximo candidato assume.
+    pub relay_count: usize,
     /// Se `Some`, este nó também **serve** de relay para os outros, com estes limites. O relay
     /// anuncia seus endereços de escuta como externos (o cliente recusa uma reserva sem endereços);
     /// atrás de port-forward, informe o endereço público em [`NodeConfig::external_addrs`].
@@ -28,6 +32,7 @@ impl Default for NodeConfig {
         Self {
             mdns: true,
             relays: Vec::new(),
+            relay_count: 2,
             relay_server: None,
             external_addrs: Vec::new(),
             autonat_global_only: true,

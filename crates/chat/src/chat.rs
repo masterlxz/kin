@@ -34,6 +34,10 @@ pub enum ChatEvent {
     RelayReserved {
         relay: PeerId,
     },
+    /// A reserva num relay acabou; o nó já tenta o próximo candidato.
+    RelayLost {
+        relay: PeerId,
+    },
     /// Resultado de uma tentativa de hole punching com o peer.
     HolePunch {
         peer: PeerId,
@@ -256,6 +260,9 @@ impl Chat {
             NodeEvent::NatStatus(status) => self.queue.push_back(ChatEvent::Nat(status)),
             NodeEvent::RelayReserved { relay } => {
                 self.queue.push_back(ChatEvent::RelayReserved { relay });
+            }
+            NodeEvent::RelayLost { relay } => {
+                self.queue.push_back(ChatEvent::RelayLost { relay });
             }
             NodeEvent::HolePunch { peer, result } => {
                 self.queue.push_back(ChatEvent::HolePunch { peer, result });

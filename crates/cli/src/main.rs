@@ -312,6 +312,7 @@ fn on_event(event: ChatEvent, current: &mut Option<PeerId>, seen: &mut Vec<Messa
         }
         ChatEvent::Nat(status) => println!("NAT: {status:?}"),
         ChatEvent::RelayReserved { relay } => println!("reserva aceita no relay {relay}"),
+        ChatEvent::RelayLost { relay } => println!("perdi a reserva no relay {relay}"),
         ChatEvent::HolePunch { peer, result } => match result {
             Ok(()) => println!("hole punching com {peer}: ok"),
             Err(e) => println!("hole punching com {peer} falhou: {e}"),
