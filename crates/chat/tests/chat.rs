@@ -15,7 +15,15 @@ struct Person {
 fn person() -> Person {
     let identity = StandaloneIdentity::generate();
     let device = DeviceKey::generate();
-    let chat = Chat::new(&identity, &device, NodeConfig { mdns: false }).unwrap();
+    let chat = Chat::new(
+        &identity,
+        &device,
+        NodeConfig {
+            mdns: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     Person {
         identity_id: identity.id(),
         peer_id: device.peer_id(),
@@ -147,7 +155,16 @@ async fn conversation_survives_restart_without_new_handshake() {
     );
     let (dev_a, dev_b) = (DeviceKey::generate(), DeviceKey::generate());
     let open = |id: &StandaloneIdentity, dev: &DeviceKey, db: &std::path::Path| {
-        Chat::open(id, dev, NodeConfig { mdns: false }, db).unwrap()
+        Chat::open(
+            id,
+            dev,
+            NodeConfig {
+                mdns: false,
+                ..Default::default()
+            },
+            db,
+        )
+        .unwrap()
     };
 
     // Primeira sessão: handshake e uma mensagem.

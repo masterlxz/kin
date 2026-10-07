@@ -5,12 +5,20 @@
 //!
 //! Fase 1.6: [`Node::send`] entrega bytes opacos (já cifrados pelo `crypto`) a um peer conectado,
 //! com ack de recebimento.
+//!
+//! Fase 2: a escada de fallback. O nó escuta também em QUIC; atrás de NAT usa um relay
+//! ([`NodeConfig::relays`], circuit relay v2) para ser alcançável e o DCUtR tenta trocar o relay por
+//! uma conexão direta (hole punching); o AutoNAT diz se este nó é público. Qualquer nó pode servir de
+//! relay ([`NodeConfig::relay_server`]).
 
 mod codec;
+mod config;
 mod error;
 mod node;
 
 pub use codec::MAX_MESSAGE_SIZE;
+pub use config::{NodeConfig, RelayLimits};
 pub use error::Error;
+pub use libp2p::multiaddr::Protocol;
 pub use libp2p::{Multiaddr, PeerId};
-pub use node::{Node, NodeConfig, NodeEvent, SendId};
+pub use node::{NatStatus, Node, NodeEvent, SendId};

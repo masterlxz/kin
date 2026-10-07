@@ -1,23 +1,32 @@
 //! CLI de desenvolvimento: sobe um nó Kin e conversa 1:1 pelo terminal.
 //!
 //! ```text
-//! kin [--data-dir DIR] [--listen ADDR] [--dial ADDR] [--no-mdns]
+//! kin [--data-dir DIR] [--listen ADDR] [--dial ADDR] [--relay ADDR]... [--external-addr ADDR]...
+//!     [--no-mdns]
+//! kin --serve-relay [--listen ADDR] [--external-addr ADDR]... [--relay-max-bytes N]
+//!     [--relay-max-circuits N]
 //! ```
 //!
-//! Na LAN, duas instâncias se acham sozinhas via mDNS. Linhas digitadas vão ao peer da conversa;
+//! Atrás de NAT, `--relay ADDR` (que termina em `/p2p/<relay>`) reserva um lugar no relay e imprime o
+//! endereço de circuito que o outro lado deve passar a `--dial`. `--serve-relay` sobe só um relay
+//! (sem chat). Na LAN, duas instâncias se acham sozinhas via mDNS. Linhas digitadas vão ao peer da conversa;
 //! `/r <id> texto` responde à mensagem `<id>` (thread); `/quit` sai.
 
 use std::path::{Path, PathBuf};
 
 use kin_chat::{Chat, ChatEvent, Message, MessageId};
 use kin_identity::{DeviceKey, StandaloneIdentity};
-use kin_transport::{Multiaddr, NodeConfig, PeerId};
+use kin_transport::{Multiaddr, Node, NodeConfig, NodeEvent, PeerId, RelayLimits};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 struct Args {
     data_dir: PathBuf,
     listen: Option<Multiaddr>,
     dial: Option<Multiaddr>,
+    relays: Vec<Multiaddr>,
+    external_addrs: Vec<Multiaddr>,
+    serve_relay: bool,
+    relay_limits: RelayLimits,
     mdns: bool,
 }
 
@@ -26,6 +35,10 @@ fn parse_args() -> Result<Args, String> {
         data_dir: PathBuf::from(".kin"),
         listen: None,
         dial: None,
+        relays: Vec::new(),
+        external_addrs: Vec::new(),
+        serve_relay: false,
+        relay_limits: RelayLimits::default(),
         mdns: true,
     };
     let mut it = std::env::args().skip(1);
@@ -35,6 +48,20 @@ fn parse_args() -> Result<Args, String> {
             "--data-dir" => args.data_dir = value()?.into(),
             "--listen" => args.listen = Some(value()?.parse().map_err(|e| format!("{e}"))?),
             "--dial" => args.dial = Some(value()?.parse().map_err(|e| format!("{e}"))?),
+            "--relay" => args
+                .relays
+                .push(value()?.parse().map_err(|e| format!("{e}"))?),
+            "--external-addr" => args
+                .external_addrs
+                .push(value()?.parse().map_err(|e| format!("{e}"))?),
+            "--serve-relay" => args.serve_relay = true,
+            "--relay-max-bytes" => {
+                args.relay_limits.max_circuit_bytes =
+                    value()?.parse().map_err(|e| format!("{e}"))?;
+            }
+            "--relay-max-circuits" => {
+                args.relay_limits.max_circuits = value()?.parse().map_err(|e| format!("{e}"))?;
+            }
             "--no-mdns" => args.mdns = false,
             other => return Err(format!("argumento desconhecido: {other}")),
         }
@@ -83,11 +110,21 @@ fn short(id: &MessageId) -> String {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args().map_err(|e| {
-        eprintln!("{e}\nuso: kin [--data-dir DIR] [--listen ADDR] [--dial ADDR] [--no-mdns]");
+        eprintln!(
+            "{e}\nuso: kin [--data-dir DIR] [--listen ADDR] [--dial ADDR] [--relay ADDR]... [--no-mdns]\n     kin --serve-relay [--listen ADDR] [--relay-max-bytes N] [--relay-max-circuits N]"
+        );
         e
     })?;
     let (identity, device) = load_keys(&args.data_dir)?;
-    let config = NodeConfig { mdns: args.mdns };
+    if args.serve_relay {
+        return serve_relay(&args, &device).await;
+    }
+    let config = NodeConfig {
+        mdns: args.mdns,
+        relays: args.relays.clone(),
+        external_addrs: args.external_addrs.clone(),
+        ..Default::default()
+    };
     let mut chat = Chat::open(
         &identity,
         &device,
@@ -103,6 +140,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.listen {
         Some(addr) => chat.listen_on(addr)?,
         None => chat.listen()?,
+    }
+    for relay in &args.relays {
+        println!("alcançável por relay em {}", chat.circuit_address(relay));
     }
     if let Some(addr) = args.dial {
         chat.dial(addr)?;
@@ -154,6 +194,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Modo relay dedicado: só encaminha circuitos para os outros, sem chat.
+async fn serve_relay(args: &Args, device: &DeviceKey) -> Result<(), Box<dyn std::error::Error>> {
+    let config = NodeConfig {
+        mdns: false,
+        relay_server: Some(args.relay_limits.clone()),
+        external_addrs: args.external_addrs.clone(),
+        ..Default::default()
+    };
+    let mut node = Node::new(device.keypair().clone(), config)?;
+    println!(
+        "kin relay {} — peer id: {}",
+        env!("CARGO_PKG_VERSION"),
+        node.peer_id()
+    );
+    match &args.listen {
+        Some(addr) => node.listen_on(addr.clone())?,
+        None => node.listen()?,
+    }
+    loop {
+        match node.next_event().await {
+            NodeEvent::Listening(addr) => println!("relay em {addr}/p2p/{}", node.peer_id()),
+            NodeEvent::PeerConnected(peer) => println!("cliente conectado: {peer}"),
+            NodeEvent::PeerDisconnected(peer) => println!("cliente saiu: {peer}"),
+            _ => {}
+        }
+    }
+}
+
 fn on_event(event: ChatEvent, current: &mut Option<PeerId>, seen: &mut Vec<MessageId>) {
     match event {
         ChatEvent::Listening(addr) => println!("escutando em {addr}"),
@@ -182,6 +250,16 @@ fn on_event(event: ChatEvent, current: &mut Option<PeerId>, seen: &mut Vec<Messa
                 None => println!("[{}] peer: {text}", short(&id)),
             }
         }
+        ChatEvent::Route { peer, relayed } => {
+            let route = if relayed { "via relay" } else { "direta" };
+            println!("rota com {peer}: {route}");
+        }
+        ChatEvent::Nat(status) => println!("NAT: {status:?}"),
+        ChatEvent::RelayReserved { relay } => println!("reserva aceita no relay {relay}"),
+        ChatEvent::HolePunch { peer, result } => match result {
+            Ok(()) => println!("hole punching com {peer}: ok"),
+            Err(e) => println!("hole punching com {peer} falhou: {e}"),
+        },
         ChatEvent::Delivered { message, .. } => println!("(entregue {})", short(&message)),
         ChatEvent::SendFailed {
             message, reason, ..

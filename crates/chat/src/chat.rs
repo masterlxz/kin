@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kin_crypto::{Conversation, CryptoDevice, Decrypted, Error as CryptoError, Expected};
 use kin_identity::{DeviceKey, IdentityId, IdentityProvider};
-use kin_transport::{Multiaddr, Node, NodeConfig, NodeEvent, PeerId, SendId};
+use kin_transport::{Multiaddr, NatStatus, Node, NodeConfig, NodeEvent, PeerId, SendId};
 
 use crate::wire::Envelope;
 use crate::{Error, Message, MessageId};
@@ -16,6 +16,23 @@ pub enum ChatEvent {
     /// Conexão de rede aberta; o handshake E2EE começa sozinho.
     PeerConnected(PeerId),
     PeerDisconnected(PeerId),
+    /// Por onde a conexão com o peer passa: direta ou via relay. Chega de novo quando o hole punching
+    /// troca o relay por uma conexão direta (a conversa não precisa de novo handshake).
+    Route {
+        peer: PeerId,
+        relayed: bool,
+    },
+    /// O AutoNAT mudou a avaliação de alcançabilidade deste nó.
+    Nat(NatStatus),
+    /// O relay aceitou a reserva: este nó é alcançável pelo endereço de circuito.
+    RelayReserved {
+        relay: PeerId,
+    },
+    /// Resultado de uma tentativa de hole punching com o peer.
+    HolePunch {
+        peer: PeerId,
+        result: Result<(), String>,
+    },
     /// Conversa E2EE pronta: já dá para enviar mensagens a este peer.
     ConversationReady {
         peer: PeerId,
@@ -127,8 +144,15 @@ impl Chat {
         Ok(self.node.listen_on(addr)?)
     }
 
+    /// Conecta direto ou, se `addr` for um endereço de circuito (`.../p2p-circuit/p2p/<peer>`), por
+    /// um relay.
     pub fn dial(&mut self, addr: Multiaddr) -> Result<(), Error> {
         Ok(self.node.dial(addr)?)
+    }
+
+    /// Endereço pelo qual outros discam este nó através do relay `relay_addr`.
+    pub fn circuit_address(&self, relay_addr: &Multiaddr) -> Multiaddr {
+        self.node.circuit_address(relay_addr)
     }
 
     /// Há conversa E2EE pronta com o peer?
@@ -193,6 +217,16 @@ impl Chat {
                     message,
                     reason,
                 });
+            }
+            NodeEvent::PeerRoute { peer, relayed } => {
+                self.queue.push_back(ChatEvent::Route { peer, relayed });
+            }
+            NodeEvent::NatStatus(status) => self.queue.push_back(ChatEvent::Nat(status)),
+            NodeEvent::RelayReserved { relay } => {
+                self.queue.push_back(ChatEvent::RelayReserved { relay });
+            }
+            NodeEvent::HolePunch { peer, result } => {
+                self.queue.push_back(ChatEvent::HolePunch { peer, result });
             }
             NodeEvent::PeerDiscovered(..)
             | NodeEvent::PeerIdentified { .. }
@@ -321,7 +355,15 @@ mod tests {
     use super::*;
 
     fn chat(identity: &StandaloneIdentity, device: &DeviceKey) -> Chat {
-        Chat::new(identity, device, NodeConfig { mdns: false }).unwrap()
+        Chat::new(
+            identity,
+            device,
+            NodeConfig {
+                mdns: false,
+                ..Default::default()
+            },
+        )
+        .unwrap()
     }
 
     /// P15: o KeyPackage legítimo de Bia, entregue por outro Peer ID, não vira conversa.

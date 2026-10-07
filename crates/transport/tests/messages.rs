@@ -7,7 +7,14 @@ use tokio::time::timeout;
 const WAIT: Duration = Duration::from_secs(15);
 
 fn node(key: &DeviceKey) -> Node {
-    Node::new(key.keypair().clone(), NodeConfig { mdns: false }).unwrap()
+    Node::new(
+        key.keypair().clone(),
+        NodeConfig {
+            mdns: false,
+            ..Default::default()
+        },
+    )
+    .unwrap()
 }
 
 /// Conecta `b` em `a` (loopback) e avança os dois até ambos verem a conexão.

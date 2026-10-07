@@ -38,7 +38,10 @@ impl Person {
         Chat::open(
             &self.identity,
             &self.device,
-            NodeConfig { mdns: false },
+            NodeConfig {
+                mdns: false,
+                ..Default::default()
+            },
             &self.db,
         )
         .unwrap()
