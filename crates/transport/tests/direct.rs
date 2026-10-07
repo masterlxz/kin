@@ -113,3 +113,46 @@ async fn dial_with_wrong_peer_id_is_rejected() {
         "conexão com Peer ID errado não pode ser aceita"
     );
 }
+
+/// Um convite traz vários endereços; basta um funcionar, e o Peer ID é conferido.
+#[tokio::test(flavor = "multi_thread")]
+async fn dial_peer_tries_all_addresses_and_connects_through_the_good_one() {
+    let (key_a, key_b) = (DeviceKey::generate(), DeviceKey::generate());
+    let (mut a, mut b) = (node(&key_a), node(&key_b));
+    let good = listen_loopback(&mut a).await;
+    // Uma porta onde ninguém escuta e um endereço de documentação (não roteável).
+    let bad: Multiaddr = "/ip4/127.0.0.1/tcp/1".parse().unwrap();
+    let nowhere: Multiaddr = "/ip4/192.0.2.1/tcp/4001".parse().unwrap();
+
+    b.dial_peer(key_a.peer_id(), vec![bad.clone(), nowhere, good])
+        .unwrap();
+    timeout(Duration::from_secs(20), async {
+        tokio::join!(
+            until_connected(&mut a, key_b.peer_id()),
+            until_connected(&mut b, key_a.peer_id())
+        )
+    })
+    .await
+    .expect("não conectou por nenhum dos endereços");
+
+    // Com outro Peer ID esperado, o mesmo endereço bom é recusado.
+    let (key_c, mut c) = {
+        let key = DeviceKey::generate();
+        let n = node(&key);
+        (key, n)
+    };
+    let a_addr = listen_loopback(&mut a).await;
+    c.dial_peer(PeerId::random(), vec![a_addr]).unwrap();
+    let failed = timeout(Duration::from_secs(20), async {
+        loop {
+            tokio::select! {
+                e = a.next_event() => { let _ = e; }
+                e = c.next_event() => if let NodeEvent::DialFailed { .. } = e { return true },
+            }
+        }
+    })
+    .await
+    .expect("o Peer ID errado deveria falhar");
+    assert!(failed);
+    let _ = key_c;
+}

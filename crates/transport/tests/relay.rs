@@ -250,3 +250,52 @@ async fn hole_punching_replaces_the_relay_with_a_direct_connection() {
     .await
     .expect("o hole punching não trocou o relay por uma conexão direta");
 }
+
+/// Discar o circuito antes de a reserva sair não pode ser cancelado: o `Node` espera sozinho.
+#[tokio::test(flavor = "multi_thread")]
+async fn circuit_dial_issued_before_the_reservation_waits_for_it() {
+    let relay = start_relay(RelayLimits::default()).await;
+    let (key_a, key_b) = (DeviceKey::generate(), DeviceKey::generate());
+    let with_relay = |r: &Multiaddr| NodeConfig {
+        relays: vec![r.clone()],
+        ..plain()
+    };
+    let mut a = node(&key_a, with_relay(&relay));
+    reserve(&mut a).await;
+
+    // B também usa o relay e disca A NA HORA, com a própria reserva ainda a caminho.
+    let mut b = node(&key_b, with_relay(&relay));
+    b.dial(a.circuit_address(&relay)).unwrap();
+    let relayed = connect_via_relay(&mut a, &mut b, key_a.peer_id(), key_b.peer_id()).await;
+    assert!(relayed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shareable_addresses_lists_external_and_circuit_but_not_loopback() {
+    let relay = start_relay(RelayLimits::default()).await;
+    let key = DeviceKey::generate();
+    let public: Multiaddr = "/ip4/203.0.113.7/tcp/4001".parse().unwrap();
+    let mut a = node(
+        &key,
+        NodeConfig {
+            relays: vec![relay],
+            external_addrs: vec![public.clone()],
+            ..plain()
+        },
+    );
+    listen_loopback(&mut a).await;
+    reserve(&mut a).await;
+
+    let shared = a.shareable_addresses();
+    assert!(
+        shared.contains(&public.with(Protocol::P2p(key.peer_id()))),
+        "{shared:?}"
+    );
+    // O relay do teste está em loopback, então o circuito dele e o endereço de escuta não entram.
+    assert!(
+        shared
+            .iter()
+            .all(|addr| !addr.to_string().contains("127.0.0.1")),
+        "{shared:?}"
+    );
+}

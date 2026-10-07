@@ -144,12 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for relay in &args.relays {
         println!("alcançável por relay em {}", chat.circuit_address(relay));
     }
-    // Com relays, o dial espera a reserva: discar um endereço de circuito enquanto a conexão com o
-    // relay ainda está sendo aberta para a reserva faz o libp2p cancelar o dial.
-    let mut pending_dial = args.dial.clone();
-    if args.relays.is_empty()
-        && let Some(addr) = pending_dial.take()
-    {
+    if let Some(addr) = args.dial {
         chat.dial(addr)?;
     }
 
@@ -159,15 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         tokio::select! {
-            event = chat.next_event() => {
-                if matches!(event, ChatEvent::RelayReserved { .. })
-                    && let Some(addr) = pending_dial.take()
-                    && let Err(e) = chat.dial(addr)
-                {
-                    println!("(falha ao discar: {e})");
-                }
-                on_event(event, &mut current, &mut seen);
-            }
+            event = chat.next_event() => on_event(event, &mut current, &mut seen),
             line = lines.next_line() => {
                 let Some(line) = line? else { break };
                 let line = line.trim();

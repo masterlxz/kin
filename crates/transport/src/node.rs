@@ -1,10 +1,13 @@
 use std::collections::VecDeque;
+use std::net::IpAddr;
 use std::time::Duration;
 
 use futures::StreamExt;
 use libp2p::multiaddr::Protocol;
 use libp2p::request_response::{self, OutboundRequestId, ProtocolSupport};
+use libp2p::swarm::DialError;
 use libp2p::swarm::behaviour::toggle::Toggle;
+use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, autonat, dcutr, identify, identity::Keypair, mdns,
@@ -13,6 +16,9 @@ use libp2p::{
 
 use crate::codec::{MessageCodec, PROTOCOL};
 use crate::{Error, NodeConfig};
+
+/// Quanto esperar a reserva no relay antes de discar um circuito mesmo assim.
+const RELAY_WAIT: Duration = Duration::from_secs(10);
 
 const PROTOCOL_VERSION: &str = concat!("/kin/", env!("CARGO_PKG_VERSION"));
 
@@ -92,6 +98,11 @@ pub struct Node {
     swarm: Swarm<Behaviour>,
     /// Eventos já produzidos mas ainda não entregues, em ordem.
     queue: VecDeque<NodeEvent>,
+    /// Há relays configurados e nenhuma reserva aceita ainda: discar um circuito agora faria o
+    /// libp2p cancelar o dial (concorre com a conexão que abre a reserva), então ele espera.
+    awaiting_relay: bool,
+    deferred: Vec<DialOpts>,
+    deferred_deadline: Option<tokio::time::Instant>,
 }
 
 impl Node {
@@ -156,6 +167,9 @@ impl Node {
         let mut node = Self {
             swarm,
             queue: VecDeque::new(),
+            awaiting_relay: !config.relays.is_empty(),
+            deferred: Vec::new(),
+            deferred_deadline: None,
         };
         for addr in &config.external_addrs {
             node.swarm.add_external_address(addr.clone());
@@ -201,10 +215,67 @@ impl Node {
 
     /// Conecta direto a um endereço. Se o endereço terminar em `/p2p/<peer-id>`, a conexão só vale
     /// se o peer do outro lado provar ter esse Peer ID.
+    ///
+    /// Um endereço de circuito (`.../p2p-circuit/p2p/<peer>`) discado antes de a reserva no relay
+    /// sair espera por ela (até 10 s) em vez de falhar.
     pub fn dial(&mut self, addr: Multiaddr) -> Result<(), Error> {
-        self.swarm
-            .dial(addr)
-            .map_err(|e| Error::Dial(e.to_string()))
+        let circuit = is_circuit(&addr);
+        self.start_dial(DialOpts::from(addr), circuit)
+    }
+
+    /// Conecta ao peer `peer` tentando vários endereços de uma vez (ex.: os de um convite). A conexão
+    /// só vale se o outro lado provar ter esse Peer ID. Se já houver conexão, não faz nada.
+    pub fn dial_peer(&mut self, peer: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error> {
+        let circuit = addrs.iter().any(is_circuit);
+        let opts = DialOpts::peer_id(peer).addresses(addrs).build();
+        self.start_dial(opts, circuit)
+    }
+
+    fn start_dial(&mut self, opts: DialOpts, circuit: bool) -> Result<(), Error> {
+        if circuit && self.awaiting_relay {
+            self.deferred.push(opts);
+            self.deferred_deadline
+                .get_or_insert_with(|| tokio::time::Instant::now() + RELAY_WAIT);
+            return Ok(());
+        }
+        match self.swarm.dial(opts) {
+            Ok(()) | Err(DialError::DialPeerConditionFalse(_)) => Ok(()),
+            Err(e) => Err(Error::Dial(e.to_string())),
+        }
+    }
+
+    /// Dispara os dials que esperavam a reserva (ela saiu, ou o prazo acabou).
+    fn flush_deferred(&mut self) {
+        self.awaiting_relay = false;
+        self.deferred_deadline = None;
+        for opts in std::mem::take(&mut self.deferred) {
+            if let Err(e) = self.start_dial(opts, true) {
+                self.queue.push_back(NodeEvent::DialFailed {
+                    peer: None,
+                    reason: e.to_string(),
+                });
+            }
+        }
+    }
+
+    /// Endereços que vale pôr num convite: os de circuito ativos (sem loopback), os externos
+    /// informados e os de escuta de IP global, todos terminando em `/p2p/<este peer>`.
+    pub fn shareable_addresses(&self) -> Vec<Multiaddr> {
+        let me = self.peer_id();
+        let mut out: Vec<Multiaddr> = Vec::new();
+        let candidates = self
+            .swarm
+            .listeners()
+            .filter(|a| is_circuit(a) && !is_loopback(a) || is_global(a))
+            // O cliente de relay também registra o circuito como endereço externo.
+            .chain(self.swarm.external_addresses().filter(|a| !is_loopback(a)));
+        for addr in candidates {
+            let addr = with_peer(addr.clone(), me);
+            if !out.contains(&addr) {
+                out.push(addr);
+            }
+        }
+        out
     }
 
     /// Envia bytes opacos a um peer já conectado. O resultado chega como `MessageDelivered` ou
@@ -224,7 +295,17 @@ impl Node {
             if let Some(event) = self.queue.pop_front() {
                 return event;
             }
-            match self.swarm.select_next_some().await {
+            let event = match self.deferred_deadline {
+                Some(deadline) => tokio::select! {
+                    event = self.swarm.select_next_some() => event,
+                    () = tokio::time::sleep_until(deadline) => {
+                        self.flush_deferred();
+                        continue;
+                    }
+                },
+                None => self.swarm.select_next_some().await,
+            };
+            match event {
                 SwarmEvent::NewListenAddr { address, .. } => {
                     if self.swarm.behaviour().relay_server.is_enabled() {
                         self.swarm.add_external_address(address.clone());
@@ -264,6 +345,7 @@ impl Node {
                 SwarmEvent::Behaviour(BehaviourEvent::RelayClient(
                     relay::client::Event::ReservationReqAccepted { relay_peer_id, .. },
                 )) => {
+                    self.flush_deferred();
                     return NodeEvent::RelayReserved {
                         relay: relay_peer_id,
                     };
@@ -363,5 +445,113 @@ impl Node {
             }),
             Event::InboundFailure { .. } | Event::ResponseSent { .. } => None,
         }
+    }
+}
+
+fn is_circuit(addr: &Multiaddr) -> bool {
+    addr.iter().any(|p| matches!(p, Protocol::P2pCircuit))
+}
+
+fn ip_of(addr: &Multiaddr) -> Option<IpAddr> {
+    addr.iter().find_map(|p| match p {
+        Protocol::Ip4(ip) => Some(IpAddr::V4(ip)),
+        Protocol::Ip6(ip) => Some(IpAddr::V6(ip)),
+        _ => None,
+    })
+}
+
+fn is_loopback(addr: &Multiaddr) -> bool {
+    ip_of(addr).is_some_and(|ip| ip.is_loopback())
+}
+
+/// Endereço de escuta alcançável de fora: IP público (nome DNS também conta). Fora: loopback,
+/// não especificado, rede privada/local e CGNAT (100.64.0.0/10).
+fn is_global(addr: &Multiaddr) -> bool {
+    if is_circuit(addr) {
+        return false;
+    }
+    match ip_of(addr) {
+        None => addr
+            .iter()
+            .any(|p| matches!(p, Protocol::Dns(_) | Protocol::Dns4(_) | Protocol::Dns6(_))),
+        Some(IpAddr::V4(ip)) => {
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_private()
+                || ip.is_link_local()
+                || ip.is_broadcast()
+                || (ip.octets()[0] == 100 && ip.octets()[1] & 0xc0 == 64))
+        }
+        Some(IpAddr::V6(ip)) => {
+            let first = ip.segments()[0];
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || first & 0xfe00 == 0xfc00 // fc00::/7, local única
+                || first & 0xffc0 == 0xfe80) // fe80::/10, link-local
+        }
+    }
+}
+
+/// Garante que o endereço termina em `/p2p/<peer>` (endereços de circuito já vêm assim).
+fn with_peer(addr: Multiaddr, peer: PeerId) -> Multiaddr {
+    match addr.iter().last() {
+        Some(Protocol::P2p(_)) => addr,
+        _ => addr.with(Protocol::P2p(peer)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn addr(s: &str) -> Multiaddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn only_publicly_reachable_listen_addresses_are_global() {
+        for public in [
+            "/ip4/203.0.113.7/tcp/4001",
+            "/ip4/8.8.8.8/udp/4001/quic-v1",
+            "/ip6/2001:db8::1/tcp/4001",
+            "/dns4/relay.example.org/tcp/4001",
+        ] {
+            assert!(is_global(&addr(public)), "{public} deveria ser global");
+        }
+        for private in [
+            "/ip4/127.0.0.1/tcp/4001",
+            "/ip4/0.0.0.0/tcp/4001",
+            "/ip4/10.1.2.3/tcp/4001",
+            "/ip4/192.168.1.82/tcp/4001",
+            "/ip4/172.17.0.1/tcp/4001",
+            "/ip4/169.254.1.1/tcp/4001",
+            "/ip4/100.64.0.1/tcp/4001", // CGNAT
+            "/ip6/::1/tcp/4001",
+            "/ip6/fe80::1/tcp/4001",
+            "/ip6/fd00::1/tcp/4001",
+        ] {
+            assert!(
+                !is_global(&addr(private)),
+                "{private} não deveria ser global"
+            );
+        }
+        // Endereço de circuito nunca é "global": entra no convite por outro caminho.
+        assert!(!is_global(&addr("/ip4/203.0.113.7/tcp/4001/p2p-circuit")));
+    }
+
+    #[test]
+    fn with_peer_appends_the_peer_id_only_once() {
+        let me = PeerId::random();
+        let plain = with_peer(addr("/ip4/203.0.113.7/tcp/4001"), me);
+        assert_eq!(plain.iter().last(), Some(Protocol::P2p(me)));
+        assert_eq!(with_peer(plain.clone(), me), plain);
+    }
+
+    #[test]
+    fn loopback_and_circuit_detection() {
+        assert!(is_loopback(&addr("/ip4/127.0.0.1/tcp/1")));
+        assert!(!is_loopback(&addr("/ip4/8.8.8.8/tcp/1")));
+        assert!(is_circuit(&addr("/ip4/8.8.8.8/tcp/1/p2p-circuit")));
+        assert!(!is_circuit(&addr("/ip4/8.8.8.8/tcp/1")));
     }
 }
