@@ -149,7 +149,20 @@ ecossistema amplo e prior art (Berty) na mesma stack.
 - `PeerConnected` dispara só na 1ª conexão com o peer; `PeerRoute { relayed }` avisa cada conexão e a
   troca relay → direta (a conversa não refaz o handshake).
 - Discar um endereço de circuito enquanto a conexão com o relay ainda abre para a reserva é cancelado pelo
-  libp2p: discar só depois de `RelayReserved` (a CLI faz isso).
+  libp2p: o `Node` agora adia sozinho esse dial até a reserva (ou 10 s).
+
+#### Convite por link (Fase 2.4) e relays candidatos (2.3)
+- **Convite** = `kin://invite/<base64url>` com `versão | certificado do device | endereços`. O certificado
+  (assinado pela identidade, cobre a chave de rede, P15) prova **quem** e **qual Peer ID**; os endereços são
+  só dicas (o Noise confere o Peer ID ao discar). `Chat::accept` disca todos os endereços de uma vez e
+  **exige** a identidade do convite no handshake MLS: um convite forjado que reivindica o Peer ID de
+  outra pessoa é descartado. Gerar o link é o consentimento (D5, "só por link"): sem pedido de amizade,
+  sem caixa de entrada (P11 segue aberta para o resto). Sem expiração nem revogação por enquanto (P18).
+- Endereços compartilháveis (`Node::shareable_addresses`): circuito de relay (sem loopback), externos
+  informados e endereços de escuta de IP **global**; LAN/loopback ficam de fora.
+- **Relays**: `NodeConfig::relays` são candidatos; o nó mede cada um (sucesso e tempo até a reserva,
+  EWMA), reserva nos `relay_count` melhores (padrão 2), dá 30 s de molho a quem falha e passa para o
+  próximo. Sem relay oficial; o ranking é local e efêmero (não persiste).
 
 ### D4 — Posicionamento do produto
 

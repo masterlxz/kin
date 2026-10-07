@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! kin [--data-dir DIR] [--listen ADDR] [--dial ADDR] [--accept LINK] [--relay ADDR]...
-//!     [--external-addr ADDR]... [--no-mdns]
+//!     [--relay-count N] [--external-addr ADDR]... [--no-mdns]
 //! kin --serve-relay [--listen ADDR] [--external-addr ADDR]... [--relay-max-bytes N]
 //!     [--relay-max-circuits N]
 //! ```
@@ -26,6 +26,7 @@ struct Args {
     dial: Option<Multiaddr>,
     accept: Option<String>,
     relays: Vec<Multiaddr>,
+    relay_count: Option<usize>,
     external_addrs: Vec<Multiaddr>,
     serve_relay: bool,
     relay_limits: RelayLimits,
@@ -39,6 +40,7 @@ fn parse_args() -> Result<Args, String> {
         dial: None,
         accept: None,
         relays: Vec::new(),
+        relay_count: None,
         external_addrs: Vec::new(),
         serve_relay: false,
         relay_limits: RelayLimits::default(),
@@ -52,6 +54,9 @@ fn parse_args() -> Result<Args, String> {
             "--listen" => args.listen = Some(value()?.parse().map_err(|e| format!("{e}"))?),
             "--dial" => args.dial = Some(value()?.parse().map_err(|e| format!("{e}"))?),
             "--accept" => args.accept = Some(value()?),
+            "--relay-count" => {
+                args.relay_count = Some(value()?.parse().map_err(|e| format!("{e}"))?);
+            }
             "--relay" => args
                 .relays
                 .push(value()?.parse().map_err(|e| format!("{e}"))?),
@@ -126,6 +131,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = NodeConfig {
         mdns: args.mdns,
         relays: args.relays.clone(),
+        relay_count: args
+            .relay_count
+            .unwrap_or_else(|| NodeConfig::default().relay_count),
         external_addrs: args.external_addrs.clone(),
         ..Default::default()
     };

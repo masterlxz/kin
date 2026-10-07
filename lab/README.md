@@ -10,7 +10,7 @@ a (10.1.0.10) -- lana --[routera NAT]-- pub (172.30.0.0/24) --[routerb NAT]-- la
 
 ```bash
 cargo build -p kin-cli          # o binário é montado do host (nada de compilar Rust no container)
-lab/run.sh                      # cone, symmetric e relay-down
+lab/run.sh                      # todos os cenários
 lab/run.sh cone                 # só um cenário
 KEEP=1 lab/run.sh cone          # deixa os containers de pé para olhar os logs
 ```
@@ -20,6 +20,8 @@ KEEP=1 lab/run.sh cone          # deixa os containers de pé para olhar os logs
 | `cone` | conversa E2EE pronta pelo relay → DCUtR abre conexão **direta** → mensagem chega |
 | `symmetric` | NAT com porta aleatória: o furo falha e a conversa **continua pelo relay** |
 | `relay-down` | depois do furo, o relay cai e a conexão direta segue viva |
+| `invite` | `a` gera o link (`/invite`), `b` o aceita (`--accept`) atrás de NAT: link adulterado é recusado, conversa pronta, hole punching |
+| `relay-failover` | dois relays; o reservado cai, `a` passa para o outro e um convite novo funciona por ele |
 
 Os roteadores descartam em silêncio pacote de fora sem mapeamento (como um roteador doméstico), o que
 deixa o SYN reenviado passar quando o outro lado abre o mapeamento.

@@ -185,6 +185,26 @@
     dial; (3) o roteador de laboratório precisa **descartar** (não RST) o SYN antecipado, como um NAT
     doméstico; (4) meu primeiro padrão de log confundia a conexão direta com o *relay* com a direta com o
     *peer* (falso positivo), corrigido exigindo o Peer ID do outro lado.
-- **Próximo passo**: Fase 2 rodada 2 — 2.4 convite por QR/link (endereços + chave pública) e 2.3 lista/ranking
-  de relays; QUIC no laboratório (P17). Antes de distribuir: teste manual entre redes reais (Fase 1 e 2).
-  P16 (re-handshake) e P13 (chave sem cifra) seguem abertas.
+- **Fase 2 (rodada 2: 2.4 convite e 2.3 relays com ranking) feita — Fase 2 concluída**:
+  - `kin-transport`: `Node::dial_peer` (vários endereços, Peer ID conferido), dial de circuito adiado dentro
+    do `Node` até a reserva (resolve P17f), `shareable_addresses` (circuito sem loopback, externos, escuta
+    global). `RelayBook` (módulo `relays`): candidatos, pontuação (taxa de sucesso suavizada ÷ latência),
+    reserva nos `relay_count` melhores, backoff de 30 s, prazo de 15 s por tentativa, `RelayLost`,
+    `relay_stats`, `add_relay`; relay sem `/p2p/<id>` é erro.
+  - `kin-chat`: `Invite` (formato v1 manual, `kin://invite/<base64url>`, confere a assinatura ao ler),
+    `Chat::invite` / `shareable_invite` / `accept`; `accept` fixa a identidade esperada por Peer ID e o
+    `Expected` do P15 recusa quem apresentar outra. `kin-crypto`: `CryptoDevice::certificate()`.
+  - `kin-cli`: `/invite` (link + QR com `qrcode`), `/accept`, `--accept`, `--relay-count`.
+  - Testes: `chat/tests/invite.rs` (6: roundtrip, links danificados e byte a byte, aceitar conecta, **convite
+    forjado que reivindica o Peer ID da Ana é recusado**, convite próprio, convite por circuito),
+    `transport/tests/relay.rs` (+5: `dial_peer`, circuito adiado, `shareable_addresses`, reserva em N relays,
+    failover, relay morto na partida) e unitários do `RelayBook`. Laboratório: cenários `invite` e
+    `relay-failover` (5 cenários, estáveis).
+  - **Achados**: (1) o cliente de relay registra o circuito como endereço *externo*, então o filtro de
+    loopback tem de valer também para os externos; (2) no convite forjado, se coube à Ana convidar no MLS ela
+    cria a conversa do lado dela e só a Bia (que fixou a identidade) recusa: estado de um lado só, mesma
+    família do P16 (P18); (3) uma falha única do cenário `invite` na primeira subida a frio (não repetiu em
+    8 execuções): o prazo do passo foi alargado.
+- **Próximo passo**: Fase 3 (mailbox/offline). Antes de distribuir: teste manual entre redes reais, QUIC no
+  laboratório (P17a), P16/P18, P13 (chave sem cifra). A Fase 2 só fecha de verdade com o teste em redes
+  reais; no laboratório está provada.

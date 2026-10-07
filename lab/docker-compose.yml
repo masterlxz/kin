@@ -37,6 +37,14 @@ services:
     networks:
       pub: { ipv4_address: 172.30.0.10 }
 
+  # Segundo relay, para o cenário de failover.
+  relay2:
+    <<: *kin
+    environment:
+      KIN_ARGS: "--serve-relay --data-dir /data --listen /ip4/0.0.0.0/tcp/4001"
+    networks:
+      pub: { ipv4_address: 172.30.0.11 }
+
   routera:
     <<: *router
     environment:

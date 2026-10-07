@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Laboratório de NAT (Fase 2): sobe relay + dois roteadores com NAT + dois peers e confere o que a
-# escada de fallback faz. Uso: `cargo build -p kin-cli && lab/run.sh [cone|symmetric|relay-down]...`
-# (sem argumentos roda os três cenários). Limpa containers e redes ao final.
+# escada de fallback faz. Uso: `cargo build -p kin-cli && lab/run.sh [cone|symmetric|relay-down|invite|relay-failover]...`
+# (sem argumentos roda todos). Limpa containers e redes ao final.
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -42,15 +42,24 @@ check() { # descrição, comando...
 cleanup() { compose down -v --remove-orphans >/dev/null 2>&1; }
 [ -n "${KEEP:-}" ] || trap cleanup EXIT   # KEEP=1 deixa os containers de pé para inspeção
 
+# Sobe relay(s) e roteadores com o NAT pedido. Variáveis: RELAY_ADDR (e RELAY2_ADDR se pedido).
+infra() { # nat [relay2]
+  local nat=$1; shift
+  cleanup
+  export NAT_MODE=$nat A_ARGS="" B_ARGS=""
+  compose up -d relay routera routerb "$@" >/dev/null || return 1
+  wait_log relay "relay em /ip4/172.30.0.10/tcp/4001/p2p/" 30 || { echo "relay não subiu"; return 1; }
+  RELAY_ADDR=$(first relay '/ip4/172.30.0.10/tcp/4001/p2p/[A-Za-z0-9]+')
+  if [ "${1:-}" = relay2 ]; then
+    wait_log relay2 "relay em /ip4/172.30.0.11/tcp/4001/p2p/" 30 || { echo "relay2 não subiu"; return 1; }
+    RELAY2_ADDR=$(first relay2 '/ip4/172.30.0.11/tcp/4001/p2p/[A-Za-z0-9]+')
+  fi
+}
+
 # Sobe a topologia com o NAT pedido e deixa A e B com a conversa pronta (pelo relay).
 # Deixa em variáveis: RELAY_ADDR, A_CIRCUIT.
 setup() {
-  local nat=$1
-  cleanup
-  export NAT_MODE=$nat A_ARGS="" B_ARGS=""
-  compose up -d relay routera routerb >/dev/null || return 1
-  wait_log relay "relay em /ip4/172.30.0.10/tcp/4001/p2p/" 30 || { echo "relay não subiu"; return 1; }
-  RELAY_ADDR=$(first relay '/ip4/172.30.0.10/tcp/4001/p2p/[A-Za-z0-9]+')
+  infra "$1" || return 1
 
   export A_ARGS="--data-dir /data --no-mdns --relay $RELAY_ADDR"
   compose up -d a >/dev/null || return 1
@@ -106,13 +115,74 @@ scenario_relay_down() {
   check "mensagem chega sem o relay" delivered a b "sem relay"
 }
 
+scenario_invite() {
+  echo "== Convite por link atrás de NAT: identidade fixada, link adulterado recusado, hole punching"
+  infra cone || { fail "montar o laboratório"; return; }
+  export A_ARGS="--data-dir /data --no-mdns --relay $RELAY_ADDR"
+  compose up -d a >/dev/null
+  wait_log a "reserva aceita no relay" 30 || { fail "a sem reserva no relay"; logs a; return; }
+  say a "/invite"
+  wait_log a "convite: kin://invite/" 15 || { fail "a não gerou o convite"; logs a; return; }
+  LINK=$(logs a | grep -oE 'kin://invite/[A-Za-z0-9_-]+' | tail -1)
+
+  # Um caractere trocado no meio do certificado: a assinatura não confere.
+  BAD=$(echo "$LINK" | sed 's/./X/40')
+  export B_ARGS="--data-dir /data --no-mdns --relay $RELAY_ADDR --accept $BAD"
+  compose up -d b >/dev/null
+  check "link adulterado é recusado" wait_log b "convite não aceito" 40 \
+    || { echo "  link: $LINK"; echo "  ruim: $BAD"; logs b | tail -8; }
+  compose rm -sf b >/dev/null 2>&1
+
+  export B_ARGS="--data-dir /data --no-mdns --relay $RELAY_ADDR --accept $LINK"
+  compose up -d b >/dev/null
+  if wait_log a "conversa cifrada pronta" 45 && wait_log b "conversa cifrada pronta" 45; then
+    pass "conversa pronta pelo link"
+  else
+    fail "conversa não ficou pronta pelo link"; logs a | tail -20; logs b | tail -20; return
+  fi
+  A_ID=$(peer_id a); B_ID=$(peer_id b)
+  check "b mostra a identidade do convite" wait_log b "convite de [A-Za-z0-9]+" 5
+  check "mensagem chega" delivered b a "oi pelo link"
+  if wait_direct a "$B_ID" 45 || wait_direct b "$A_ID" 5; then
+    pass "hole punching depois do convite"
+  else
+    fail "sem conexão direta depois do convite"
+  fi
+}
+
+scenario_relay_failover() {
+  echo "== Failover de relay: o relay reservado cai e o nó passa para o outro"
+  infra cone relay2 || { fail "montar o laboratório"; return; }
+  local r1=${RELAY_ADDR##*/p2p/} r2=${RELAY2_ADDR##*/p2p/}
+  export A_ARGS="--data-dir /data --no-mdns --relay $RELAY_ADDR --relay $RELAY2_ADDR --relay-count 1"
+  compose up -d a >/dev/null
+  wait_log a "reserva aceita no relay $r1" 30 || { fail "a sem reserva no relay 1"; logs a; return; }
+  compose stop relay >/dev/null
+  check "a percebe que perdeu o relay 1" wait_log a "perdi a reserva no relay $r1" 30
+  check "a reserva no relay 2" wait_log a "reserva aceita no relay $r2" 30 || { logs a | tail -20; return; }
+
+  say a "/invite"
+  wait_log a "convite: kin://invite/" 15 || { fail "a não gerou o convite"; return; }
+  LINK=$(logs a | grep -oE 'kin://invite/[A-Za-z0-9_-]+' | tail -1)
+  export B_ARGS="--data-dir /data --no-mdns --relay $RELAY2_ADDR --accept $LINK"
+  compose up -d b >/dev/null
+  if wait_log a "conversa cifrada pronta" 45 && wait_log b "conversa cifrada pronta" 45; then
+    pass "conversa pronta pelo relay 2"
+  else
+    fail "conversa não ficou pronta pelo relay 2"; logs a | tail -20; logs b | tail -20; return
+  fi
+  check "mensagem chega" delivered b a "depois do failover"
+}
+
 SCENARIOS=("$@")
-[ ${#SCENARIOS[@]} -eq 0 ] && SCENARIOS=(cone symmetric relay-down)
+[ ${#SCENARIOS[@]} -eq 0 ] && SCENARIOS=(cone symmetric relay-down invite relay-failover)
 for s in "${SCENARIOS[@]}"; do
   case "$s" in
     cone) scenario_cone ;;
     symmetric) scenario_symmetric ;;
     relay-down) scenario_relay_down ;;
+    invite) scenario_invite ;;
+    relay-failover) scenario_relay_failover ;;
     *) echo "cenário desconhecido: $s" >&2; exit 2 ;;
   esac
 done

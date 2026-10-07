@@ -48,10 +48,10 @@ direta.
 **Etapas** (preliminares):
 - [x] 2.1 — Hole punching (DCUtR + AutoNAT) — `kin-transport` escuta também em QUIC; `NodeEvent::HolePunch`, `NatStatus` e `PeerRoute { relayed }`; validado em loopback e no laboratório com NAT cone real (Sessão 3)
 - [x] 2.2 — Relay público/de peer como fallback (circuit relay v2) — `NodeConfig::relays` / `relay_server` (`RelayLimits`, padrão sem limite de bytes para carregar conversas), CLI `--relay` / `--serve-relay`; conversa E2EE por relay testada, inclusive atrás de NAT simétrico (Sessão 3)
-- [ ] 2.3 — Lista de relays candidatos + medição/ranking local
-- [ ] 2.4 — Convite por QR/link (endereços + chave pública, padrão do pareamento QR do TruthID); base do modelo de contato por consentimento (D5)
+- [x] 2.3 — Lista de relays candidatos + medição/ranking local — `RelayBook` em `kin-transport`: pontuação por taxa de sucesso e latência, reserva nos N melhores (`relay_count`), backoff de 30 s e failover; `Node::relay_stats`, `RelayLost` (Sessão 3)
+- [x] 2.4 — Convite por link/QR — `Invite` em `kin-chat` (certificado do device + endereços, `kin://invite/<base64url>`), `Chat::accept` fixa a identidade do convite no handshake; CLI `/invite` (link + QR), `/accept`, `--accept` (Sessão 3)
 
-**Critério de pronto**: conversam atrás de CGNAT sem nenhum dos dois subir servidor.
+**Critério de pronto**: conversam atrás de CGNAT sem nenhum dos dois subir servidor. ✅ provado no laboratório de NAT (`lab/`), com relay de terceiros; falta o teste em redes reais (P17).
 
 ---
 
