@@ -85,4 +85,12 @@
   `Keypair` para o transporte); `DeviceCertificate` assinado pela identidade com separador de domínio
   (`kin/device-cert/v1`) e `verify()`. 6 testes de integração (assinatura, certificado adulterado/forjado/
   device trocado, roundtrip de arquivo + permissão, bytes inválidos). P13 aberta (chave sem cifra em repouso).
-- **Próximo passo**: Fase 1.3 (descoberta em LAN via mDNS no crate `transport`, com `libp2p` 0.57).
+- **Fase 1.3 feita**: `kin_transport::Node` sobre `libp2p` 0.57 (features tokio, tcp, noise, yamux,
+  mdns, macros; `default-features = false`). Usa o `Keypair` do `DeviceKey` (Peer ID = o da identidade);
+  escuta em `/ip4/0.0.0.0/tcp/0`, descobre peers por mDNS e disca neles sozinho. API: `new`, `listen`,
+  `dial`, `peer_id`, `next_event()` com `NodeEvent::{Listening, PeerDiscovered, PeerConnected,
+  PeerDisconnected}`. Teste de integração com dois nós no mesmo processo (8/8 execuções ok, ~0,08 s).
+  Ressalva: o teste depende de multicast local; pode falhar em CI/containers sem multicast (relevante
+  quando o CI entrar).
+- **Próximo passo**: Fase 1.4 (conexão direta pela internet com IP alcançável: dial por endereço,
+  endereços externos, `identify`).

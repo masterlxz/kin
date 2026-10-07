@@ -11,3 +11,9 @@ workspace = true
 
 [dependencies]
 kin-identity.workspace = true
+libp2p.workspace = true
+futures.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
