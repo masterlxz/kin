@@ -112,5 +112,21 @@
   Achados na pesquisa/código: `MlsMessageIn::into_welcome` só existe em testes (usar `extract()`);
   `ProcessMessageError` é genérico no storage; duplicata = `SecretReuseError`. P14 (persistência MLS) e
   P15 (Peer ID ↔ chave MLS) abertas; P9 segue aberta para commits concorrentes/grupos.
-- **Próximo passo**: Fase 1.6 (chat 1:1 mínimo no crate `chat` com `parent_message_id`, ligando
-  `crypto` + `transport`). Antes, decidir se P14 (persistência) entra na 1.6.
+- **Fase 1.6 feita** (decisões do usuário: P14 fica fora da 1.6; entrega = lib + CLI mínima):
+  - `kin-transport`: `request-response` com codec próprio (u32 BE + bytes, máx. 64 KiB, ack de 1 byte);
+    `Node::send(peer, bytes) -> SendId` e eventos `MessageReceived`/`MessageDelivered`/`SendFailed`.
+  - `kin-chat`: `Message` (id aleatório de 128 bits, `parent: Option<MessageId>`, `sent_at_ms`, texto;
+    formato v1 manual, sem serde), `Chat` (um `Conversation` por peer, em memória) e handshake in-band
+    `Hello → KeyPackage → Welcome → Mls`; o de **menor** Peer ID convida (evita convite duplo quando os
+    dois discam ao mesmo tempo via mDNS). Duplicata/antiga demais do MLS é ignorada; o resto vira
+    `ChatEvent::Dropped`.
+  - `kin-cli`: `kin [--data-dir] [--listen] [--dial] [--no-mdns]`, identidade e chave de device
+    persistidas (0600, sem cifra: P13), `/r <id> texto` para thread, `/quit`. Smoke test real com duas
+    instâncias em loopback ok.
+  - Testes: 2 no transporte (entrega+ack, mensagem grande demais), 3 no chat (handshake + dois sentidos
+    com thread, envio sem conversa, formato). Ressalva: o handshake só avança se o app dirige o nó em
+    loop contínuo (o swarm só progride quando polado).
+  - **Ressalva de segurança (P15)**: a identidade mostrada vem do certificado MLS, não da conexão; nada
+    prova que o Peer ID que enviou o Welcome/KeyPackage é o device daquele certificado.
+- **Próximo passo**: Fase 1.7 (testes de integração entre dois nós, incluindo mDNS e reconexão) e, antes
+  do uso real, P14 (persistência MLS) — hoje reiniciar o `kin` perde a conversa e o handshake recomeça.

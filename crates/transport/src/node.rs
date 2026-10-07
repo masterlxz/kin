@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use futures::StreamExt;
+use libp2p::request_response::{self, OutboundRequestId, ProtocolSupport};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::{
@@ -8,6 +9,7 @@ use libp2p::{
 };
 
 use crate::Error;
+use crate::codec::{MessageCodec, PROTOCOL};
 
 const PROTOCOL_VERSION: &str = concat!("/kin/", env!("CARGO_PKG_VERSION"));
 
@@ -15,7 +17,12 @@ const PROTOCOL_VERSION: &str = concat!("/kin/", env!("CARGO_PKG_VERSION"));
 struct Behaviour {
     mdns: Toggle<mdns::tokio::Behaviour>,
     identify: identify::Behaviour,
+    messages: request_response::Behaviour<MessageCodec>,
 }
+
+/// Identifica um envio, para casar com [`NodeEvent::MessageDelivered`] / [`NodeEvent::SendFailed`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SendId(OutboundRequestId);
 
 /// Opções do nó.
 #[derive(Debug, Clone)]
@@ -52,6 +59,16 @@ pub enum NodeEvent {
         peer: Option<PeerId>,
         reason: String,
     },
+    /// Chegou uma mensagem (bytes opacos) do peer; o ack já foi devolvido.
+    MessageReceived { peer: PeerId, data: Vec<u8> },
+    /// O peer confirmou o recebimento da mensagem enviada com [`Node::send`].
+    MessageDelivered { peer: PeerId, id: SendId },
+    /// O envio falhou (sem conexão, timeout, conexão encerrada ou peer sem o protocolo).
+    SendFailed {
+        peer: PeerId,
+        id: SendId,
+        reason: String,
+    },
 }
 
 /// Nó de rede: escuta em TCP, conecta por endereço ou via mDNS e troca identificação com os peers.
@@ -83,9 +100,15 @@ impl Node {
                     PROTOCOL_VERSION.into(),
                     key.public(),
                 ));
+                let messages = request_response::Behaviour::with_codec(
+                    MessageCodec,
+                    [(PROTOCOL, ProtocolSupport::Full)],
+                    request_response::Config::default(),
+                );
                 Ok(Behaviour {
                     mdns: mdns.into(),
                     identify,
+                    messages,
                 })
             })
             .map_err(|e| Error::Build(e.to_string()))?
@@ -115,6 +138,17 @@ impl Node {
         self.swarm
             .dial(addr)
             .map_err(|e| Error::Dial(e.to_string()))
+    }
+
+    /// Envia bytes opacos a um peer já conectado. O resultado chega como `MessageDelivered` ou
+    /// `SendFailed` com o mesmo [`SendId`].
+    pub fn send(&mut self, peer: PeerId, data: Vec<u8>) -> SendId {
+        SendId(
+            self.swarm
+                .behaviour_mut()
+                .messages
+                .send_request(&peer, data),
+        )
     }
 
     /// Avança o nó até o próximo evento relevante.
@@ -149,6 +183,11 @@ impl Node {
                         observed_addr: info.observed_addr,
                     };
                 }
+                SwarmEvent::Behaviour(BehaviourEvent::Messages(event)) => {
+                    if let Some(event) = self.on_message_event(event) {
+                        return event;
+                    }
+                }
                 SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                     return NodeEvent::PeerConnected(peer_id);
                 }
@@ -165,6 +204,53 @@ impl Node {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn on_message_event(
+        &mut self,
+        event: request_response::Event<Vec<u8>, ()>,
+    ) -> Option<NodeEvent> {
+        use request_response::{Event, Message};
+        match event {
+            Event::Message {
+                peer,
+                message:
+                    Message::Request {
+                        request, channel, ..
+                    },
+                ..
+            } => {
+                // Se o ack não puder ser enviado, o canal já fechou; o remetente reenvia.
+                let _ = self
+                    .swarm
+                    .behaviour_mut()
+                    .messages
+                    .send_response(channel, ());
+                Some(NodeEvent::MessageReceived {
+                    peer,
+                    data: request,
+                })
+            }
+            Event::Message {
+                peer,
+                message: Message::Response { request_id, .. },
+                ..
+            } => Some(NodeEvent::MessageDelivered {
+                peer,
+                id: SendId(request_id),
+            }),
+            Event::OutboundFailure {
+                peer,
+                request_id,
+                error,
+                ..
+            } => Some(NodeEvent::SendFailed {
+                peer,
+                id: SendId(request_id),
+                reason: error.to_string(),
+            }),
+            Event::InboundFailure { .. } | Event::ResponseSent { .. } => None,
         }
     }
 }

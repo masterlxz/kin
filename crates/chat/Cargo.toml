@@ -13,3 +13,8 @@ workspace = true
 kin-identity.workspace = true
 kin-crypto.workspace = true
 kin-transport.workspace = true
+rand.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

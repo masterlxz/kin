@@ -19,3 +19,4 @@ kin-transport.workspace = true
 kin-overlay.workspace = true
 kin-crypto.workspace = true
 kin-chat.workspace = true
+tokio.workspace = true

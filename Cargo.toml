@@ -19,13 +19,14 @@ all = "warn"
 # Previstas: libp2p 0.57 (D3, transport/overlay), openmls 0.9 (D2, crypto).
 libp2p-identity = { version = "0.3", features = ["ed25519", "peerid", "rand"] }
 thiserror = "2"
-libp2p = { version = "0.57", default-features = false, features = ["tokio", "tcp", "noise", "yamux", "mdns", "identify", "macros"] }
+libp2p = { version = "0.57", default-features = false, features = ["tokio", "tcp", "noise", "yamux", "mdns", "identify", "macros", "request-response"] }
 openmls = "=0.9.0"
 openmls_rust_crypto = "=0.6.0"
 openmls_basic_credential = "=0.6.0"
 openmls_traits = "=0.6.0"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "io-util", "io-std"] }
 futures = "0.3"
+rand = "0.9"
 tempfile = "3"
 kin-identity = { path = "crates/identity" }
 kin-transport = { path = "crates/transport" }
