@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/masterlxz/kin"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[workspace.dependencies]
+# Dependências externas entram aqui e são herdadas pelos crates que as usam.
+# Previstas: libp2p 0.57 (D3, transport/overlay), openmls 0.9 (D2, crypto).
+kin-identity = { path = "crates/identity" }
+kin-transport = { path = "crates/transport" }
+kin-overlay = { path = "crates/overlay" }
+kin-crypto = { path = "crates/crypto" }
+kin-chat = { path = "crates/chat" }

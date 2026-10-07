@@ -73,5 +73,10 @@
   dele → abstração com dois provedores: **standalone (padrão, Ed25519)** + **TruthID opcional** via
   prova assinada de vínculo; promoção sem perda de contatos. Fase 1.2 ajustada. P12 aberta
   (verificação do vínculo, raiz de chaves, integração).
-- **Próximo passo**: Fase 1.1 (workspace Rust com identity, transport, overlay, crypto, chat). Ainda
-  sem código; dúvidas pendentes: vários crates vs crate único, e CI agora ou depois.
+- **Fase 1.1 feita**: workspace Cargo (edition 2024, Rust 1.98) com `crates/{identity,crypto,transport,overlay,chat,cli}`;
+  dependências entre crates declaradas (identity na base; chat depende de identity, crypto e transport);
+  `libp2p` 0.57 e `openmls` 0.9 confirmados no crates.io mas só entram nos crates quando usados
+  (1.3 e 1.5). Escolhas: workspace com vários crates (mais organizado, reaproveitável pelo Tauri/Flutter);
+  CI adiado até haver testes reais (depois da 1.2). `Cargo.lock` passou a ser versionado.
+  `cargo clippy -D warnings` e `cargo test` limpos.
+- **Próximo passo**: Fase 1.2 (crate `identity`: provedor standalone Ed25519, chave de device, Peer ID).

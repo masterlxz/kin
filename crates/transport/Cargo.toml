@@ -1,0 +1,13 @@
+[package]
+name = "kin-transport"
+description = "Conexões entre peers e abstração de mailbox (D1, D3)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kin-identity.workspace = true

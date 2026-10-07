@@ -1,0 +1,21 @@
+[package]
+name = "kin-cli"
+description = "CLI de desenvolvimento para subir nós Kin e testar a rede."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "kin"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+kin-identity.workspace = true
+kin-transport.workspace = true
+kin-overlay.workspace = true
+kin-crypto.workspace = true
+kin-chat.workspace = true

@@ -27,7 +27,7 @@
 **Objetivo**: Fabio e um amigo conversam na mesma rede e pela internet quando há conectividade direta.
 
 **Etapas** (preliminares):
-- [ ] 1.1 — Setup do núcleo Rust + estrutura de módulos (identity, transport, overlay, crypto, chat)
+- [x] 1.1 — Setup do núcleo Rust + estrutura de módulos (identity, transport, overlay, crypto, chat) — workspace com 1 crate por módulo + `kin-cli` (Sessão 3)
 - [ ] 1.2 — Identidade com provedores (D7): provedor standalone (keypair Ed25519) + interface pronta para o TruthID opcional; chave de device + Peer ID derivado
 - [ ] 1.3 — Descoberta em LAN via mDNS
 - [ ] 1.4 — Conexão direta pela internet (IP alcançável)

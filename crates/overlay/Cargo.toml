@@ -1,0 +1,14 @@
+[package]
+name = "kin-overlay"
+description = "Gossip, DHT e app-relay (Fase 4)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kin-identity.workspace = true
+kin-transport.workspace = true

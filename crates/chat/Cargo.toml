@@ -1,0 +1,15 @@
+[package]
+name = "kin-chat"
+description = "Formato de mensagem (com parent_message_id, D4) e fluxo de conversa."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kin-identity.workspace = true
+kin-crypto.workspace = true
+kin-transport.workspace = true
