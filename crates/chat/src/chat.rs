@@ -16,6 +16,12 @@ pub enum ChatEvent {
     /// Conexão de rede aberta; o handshake E2EE começa sozinho.
     PeerConnected(PeerId),
     PeerDisconnected(PeerId),
+    /// Uma tentativa de conexão falhou (endereço fora do ar, Peer ID diferente do esperado, relay
+    /// sem reserva do destino, etc.).
+    DialFailed {
+        peer: Option<PeerId>,
+        reason: String,
+    },
     /// Por onde a conexão com o peer passa: direta ou via relay. Chega de novo quando o hole punching
     /// troca o relay por uma conexão direta (a conversa não precisa de novo handshake).
     Route {
@@ -228,9 +234,10 @@ impl Chat {
             NodeEvent::HolePunch { peer, result } => {
                 self.queue.push_back(ChatEvent::HolePunch { peer, result });
             }
-            NodeEvent::PeerDiscovered(..)
-            | NodeEvent::PeerIdentified { .. }
-            | NodeEvent::DialFailed { .. } => {}
+            NodeEvent::DialFailed { peer, reason } => {
+                self.queue.push_back(ChatEvent::DialFailed { peer, reason });
+            }
+            NodeEvent::PeerDiscovered(..) | NodeEvent::PeerIdentified { .. } => {}
         }
     }
 

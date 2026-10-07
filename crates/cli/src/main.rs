@@ -144,7 +144,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for relay in &args.relays {
         println!("alcançável por relay em {}", chat.circuit_address(relay));
     }
-    if let Some(addr) = args.dial {
+    // Com relays, o dial espera a reserva: discar um endereço de circuito enquanto a conexão com o
+    // relay ainda está sendo aberta para a reserva faz o libp2p cancelar o dial.
+    let mut pending_dial = args.dial.clone();
+    if args.relays.is_empty()
+        && let Some(addr) = pending_dial.take()
+    {
         chat.dial(addr)?;
     }
 
@@ -154,7 +159,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         tokio::select! {
-            event = chat.next_event() => on_event(event, &mut current, &mut seen),
+            event = chat.next_event() => {
+                if matches!(event, ChatEvent::RelayReserved { .. })
+                    && let Some(addr) = pending_dial.take()
+                    && let Err(e) = chat.dial(addr)
+                {
+                    println!("(falha ao discar: {e})");
+                }
+                on_event(event, &mut current, &mut seen);
+            }
             line = lines.next_line() => {
                 let Some(line) = line? else { break };
                 let line = line.trim();
@@ -249,6 +262,10 @@ fn on_event(event: ChatEvent, current: &mut Option<PeerId>, seen: &mut Vec<Messa
                 Some(parent) => println!("[{}] ↳ {}: {text}", short(&id), short(&parent)),
                 None => println!("[{}] peer: {text}", short(&id)),
             }
+        }
+        ChatEvent::DialFailed { peer, reason } => {
+            let who = peer.map_or_else(|| "?".into(), |p| p.to_string());
+            println!("falha ao conectar a {who}: {reason}");
         }
         ChatEvent::Route { peer, relayed } => {
             let route = if relayed { "via relay" } else { "direta" };

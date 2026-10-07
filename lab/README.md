@@ -1,0 +1,30 @@
+# Laboratório de NAT
+
+Prova a escada de fallback do Kin (direto → relay → hole punching) com NAT de verdade, na sua máquina:
+
+```text
+a (10.1.0.10) -- lana --[routera NAT]-- pub (172.30.0.0/24) --[routerb NAT]-- lanb -- b (10.2.0.10)
+                                           |
+                                         relay (172.30.0.10)
+```
+
+```bash
+cargo build -p kin-cli          # o binário é montado do host (nada de compilar Rust no container)
+lab/run.sh                      # cone, symmetric e relay-down
+lab/run.sh cone                 # só um cenário
+KEEP=1 lab/run.sh cone          # deixa os containers de pé para olhar os logs
+```
+
+| Cenário | Esperado |
+|---|---|
+| `cone` | conversa E2EE pronta pelo relay → DCUtR abre conexão **direta** → mensagem chega |
+| `symmetric` | NAT com porta aleatória: o furo falha e a conversa **continua pelo relay** |
+| `relay-down` | depois do furo, o relay cai e a conexão direta segue viva |
+
+Os roteadores descartam em silêncio pacote de fora sem mapeamento (como um roteador doméstico), o que
+deixa o SYN reenviado passar quando o outro lado abre o mapeamento.
+
+**Disco**: a imagem `kin-lab` tem ~133 MB (sobre `debian:stable-slim`). `run.sh` remove containers e redes
+ao terminar; para apagar a imagem: `docker rmi kin-lab`.
+
+Limitação: o relay do laboratório escuta só TCP, então o hole punching por QUIC/UDP não é exercitado (P17).

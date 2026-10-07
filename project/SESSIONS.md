@@ -166,5 +166,25 @@
     rótulo não bate com o certificado. Teste unitário `key_package_from_another_peer_is_refused`.
   - Quebra deliberada: bancos `.kin` antigos (certificado v1) não abrem; apagar `mls.sqlite`. Smoke test
     da CLI com dois diretórios novos ok; `cargo test --workspace`, clippy e fmt ok.
-- **Próximo passo**: fechar a Fase 1 com o teste manual entre duas redes reais (critério "pela internet";
-  o 1.4 só foi validado em loopback). Depois, Fase 2. P16 (re-handshake) e P13 (chave sem cifra) seguem abertas.
+- **Fase 2 (rodada 1: 2.1 hole punching + AutoNAT e 2.2 relay) feita** (decisões do usuário: só a
+  conectividade nesta rodada, 2.3/2.4 ficam para a próxima; laboratório de NAT com Docker):
+  - `kin-transport`: libp2p com `relay`, `dcutr`, `autonat`, `quic`, `dns`; `NodeConfig` ganhou `relays`,
+    `relay_server: Option<RelayLimits>`, `external_addrs`, `autonat_global_only`; `Node::use_relay`,
+    `circuit_address`; eventos `PeerRoute`, `NatStatus`, `RelayReserved`, `HolePunch`. `PeerConnected` agora
+    só na 1ª conexão (as seguintes viram `PeerRoute`). `kin-chat` repassa tudo e expõe `DialFailed`
+    (antes engolido). CLI: `--relay`, `--serve-relay`, `--external-addr`, `--relay-max-*`, status de rota.
+  - Testes: `transport/tests/relay.rs` (4: mensagem com ack por relay, 5×60 KiB sem limite de bytes,
+    limite de bytes corta o circuito, DCUtR troca relay por direta em loopback), `autonat.rs` (15 s por
+    causa do `boot_delay`), `chat/tests/relay.rs` (handshake MLS + P15 por relay).
+  - **Laboratório** `lab/` (Docker, 133 MB, binário montado do host): relay + 2 roteadores com NAT
+    (iptables) + a + b. `lab/run.sh` roda: NAT cone → conversa pronta pelo relay e depois **conexão direta
+    por hole punching**; NAT simétrico (`--random-fully`) → continua pelo relay; relay cai depois do furo →
+    direta segue viva. Estável em 4 execuções completas seguidas.
+  - **Achados**: (1) o cliente libp2p **recusa a reserva** se o relay não anunciar endereços externos
+    (`NoAddressesInReservation`); (2) discar o circuito junto da abertura da conexão com o relay cancela o
+    dial; (3) o roteador de laboratório precisa **descartar** (não RST) o SYN antecipado, como um NAT
+    doméstico; (4) meu primeiro padrão de log confundia a conexão direta com o *relay* com a direta com o
+    *peer* (falso positivo), corrigido exigindo o Peer ID do outro lado.
+- **Próximo passo**: Fase 2 rodada 2 — 2.4 convite por QR/link (endereços + chave pública) e 2.3 lista/ranking
+  de relays; QUIC no laboratório (P17). Antes de distribuir: teste manual entre redes reais (Fase 1 e 2).
+  P16 (re-handshake) e P13 (chave sem cifra) seguem abertas.

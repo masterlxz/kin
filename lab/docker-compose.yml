@@ -1,0 +1,84 @@
+# Laboratório de NAT do Kin (Fase 2). Topologia:
+#
+#   a (10.1.0.10) -- lana --[routera NAT]-- pub (172.30.0.0/24) --[routerb NAT]-- lanb -- b (10.2.0.10)
+#                                              |
+#                                            relay (172.30.0.10)
+#
+# a e b só conseguem sair pelos roteadores, que fazem NAT (cone ou simétrico, via NAT_MODE).
+# Use `lab/run.sh`; não suba isto à mão.
+name: kinlab
+
+x-kin: &kin
+  image: kin-lab
+  volumes:
+    - ../target/debug/kin:/usr/local/bin/kin:ro
+    - ./node.sh:/lab/node.sh:ro
+  entrypoint: ["/lab/node.sh"]
+  cap_add: [NET_ADMIN]
+  stop_grace_period: 1s
+
+x-router: &router
+  image: kin-lab
+  volumes:
+    - ./router.sh:/lab/router.sh:ro
+  entrypoint: ["/lab/router.sh"]
+  cap_add: [NET_ADMIN]
+  sysctls:
+    net.ipv4.ip_forward: "1"
+  environment:
+    NAT_MODE: "${NAT_MODE:-cone}"
+  stop_grace_period: 1s
+
+services:
+  relay:
+    <<: *kin
+    environment:
+      KIN_ARGS: "--serve-relay --data-dir /data --listen /ip4/0.0.0.0/tcp/4001"
+    networks:
+      pub: { ipv4_address: 172.30.0.10 }
+
+  routera:
+    <<: *router
+    environment:
+      NAT_MODE: "${NAT_MODE:-cone}"
+      LAN_PREFIX: "10.1.0."
+      WAN_PREFIX: "172.30.0."
+    networks:
+      lana: { ipv4_address: 10.1.0.2 }
+      pub: { ipv4_address: 172.30.0.2 }
+
+  routerb:
+    <<: *router
+    environment:
+      NAT_MODE: "${NAT_MODE:-cone}"
+      LAN_PREFIX: "10.2.0."
+      WAN_PREFIX: "172.30.0."
+    networks:
+      lanb: { ipv4_address: 10.2.0.2 }
+      pub: { ipv4_address: 172.30.0.3 }
+
+  a:
+    <<: *kin
+    environment:
+      GATEWAY: "10.1.0.2"
+      KIN_ARGS: "${A_ARGS:-}"
+    networks:
+      lana: { ipv4_address: 10.1.0.10 }
+
+  b:
+    <<: *kin
+    environment:
+      GATEWAY: "10.2.0.2"
+      KIN_ARGS: "${B_ARGS:-}"
+    networks:
+      lanb: { ipv4_address: 10.2.0.10 }
+
+networks:
+  pub:
+    ipam: { config: [{ subnet: 172.30.0.0/24 }] }
+  lana:
+    internal: true
+    ipam: { config: [{ subnet: 10.1.0.0/24 }] }
+  lanb:
+    internal: true
+    ipam: { config: [{ subnet: 10.2.0.0/24 }] }

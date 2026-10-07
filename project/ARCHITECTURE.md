@@ -138,6 +138,19 @@ ecossistema amplo e prior art (Berty) na mesma stack.
 
 **Reabrir se**: o spike da Fase 1 mostrar que o relay de fallback custa mais do que o esperado.
 
+#### D3 — como ficou a conectividade (Fase 2, Sessão 3)
+- Escada: direto → circuit relay v2 → DCUtR troca o relay por conexão direta sozinho. O Noise do circuito
+  autentica o peer de ponta a ponta, então o handshake MLS e a verificação do P15 valem igual por relay.
+- O nó escuta em TCP **e** QUIC. Um nó serve de relay com `NodeConfig::relay_server`; o limite padrão do
+  libp2p (128 KiB, 2 min) só serve para coordenar o furo, então `RelayLimits` tem padrão generoso
+  (`max_circuit_bytes = 0` = sem limite) e é configurável.
+- O cliente **recusa a reserva** se o relay não anunciar endereços externos: o relay registra os próprios
+  endereços de escuta e aceita `external_addrs` (IP público atrás de port-forward).
+- `PeerConnected` dispara só na 1ª conexão com o peer; `PeerRoute { relayed }` avisa cada conexão e a
+  troca relay → direta (a conversa não refaz o handshake).
+- Discar um endereço de circuito enquanto a conexão com o relay ainda abre para a reserva é cancelado pelo
+  libp2p: discar só depois de `RelayReserved` (a CLI faz isso).
+
 ### D4 — Posicionamento do produto
 
 WhatsApp-like, Slack/Discord-like ou broadcast (Twitter-like)? Muda modelo de dados, grupos e

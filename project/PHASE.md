@@ -46,8 +46,8 @@ direta.
 **Objetivo**: Conversar atrás de CGNAT sem nenhum dos dois subir servidor.
 
 **Etapas** (preliminares):
-- [ ] 2.1 — Hole punching (ex.: DCUtR + AutoNAT)
-- [ ] 2.2 — Relay público/de peer como fallback (circuit relay v2 ou equivalente)
+- [x] 2.1 — Hole punching (DCUtR + AutoNAT) — `kin-transport` escuta também em QUIC; `NodeEvent::HolePunch`, `NatStatus` e `PeerRoute { relayed }`; validado em loopback e no laboratório com NAT cone real (Sessão 3)
+- [x] 2.2 — Relay público/de peer como fallback (circuit relay v2) — `NodeConfig::relays` / `relay_server` (`RelayLimits`, padrão sem limite de bytes para carregar conversas), CLI `--relay` / `--serve-relay`; conversa E2EE por relay testada, inclusive atrás de NAT simétrico (Sessão 3)
 - [ ] 2.3 — Lista de relays candidatos + medição/ranking local
 - [ ] 2.4 — Convite por QR/link (endereços + chave pública, padrão do pareamento QR do TruthID); base do modelo de contato por consentimento (D5)
 
