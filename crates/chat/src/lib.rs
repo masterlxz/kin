@@ -1,7 +1,7 @@
 //! Chat 1:1 (Fase 1.6): formato de mensagem com `parent_message_id` (D4) e o fluxo que liga
 //! `crypto` e `transport`.
 //!
-//! Estado MLS só em memória (P14): reiniciar o app perde as conversas.
+//! Estado MLS em SQLite com [`Chat::open`] (P14) ou só em memória com [`Chat::new`].
 
 mod chat;
 mod error;

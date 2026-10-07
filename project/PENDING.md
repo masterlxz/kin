@@ -19,7 +19,6 @@
 | P11 | **Solicitação de amizade sem servidor** — formato assinado pré-sessão MLS; onde entregar a solicitação com o destinatário offline (endpoint público = alvo de spam em relays/mailboxes); pesquisa por nome/identidade (depende de DHT, Fase 4); aceite que cria a sessão MLS | D5 (Sessão 2) | Média (Fase 2 para link/QR; Fase 4 para pesquisa) |
 | P12 | **Vínculo Kin ↔ TruthID** — (a) como verificar a prova "chave Kin pertence à identidade TruthID" (RPC da Base vs prova off-chain assinada); (b) raiz da hierarquia de chaves no modo TruthID (wallet → delegação ao Kin); (c) como o Kin fala com o TruthID (crate, serviço local ou só formato de chave compatível) | D7 (Sessão 3) | Baixa (Fase 1 usa só o provedor standalone; resolver antes de expor o vínculo) |
 | P13 | **Chave mestra sem cifra em repouso** — `StandaloneIdentity::save` grava o keypair em arquivo com permissão 0600, mas sem senha/keystore do SO. Definir proteção (senha, keyring do SO, Secure Enclave/Keystore no mobile) antes de qualquer uso além de desenvolvimento | Fase 1.2 (Sessão 3) | Média (antes de distribuir o app) |
-| P14 | **Persistência do estado MLS** — `kin-crypto` mantém grupos e chaves só em memória (`MemoryStorage`): reiniciar o app perde as conversas. Opção mapeada: `openmls_sqlite_storage` 0.3 + provider próprio combinando `RustCrypto` com o storage (sem exemplo pronto; sem suporte a wasm32). Precisa também cifrar em repouso (ver P13) | Fase 1.5 (Sessão 3) | Alta (antes da 1.6/uso real) |
 | P15 | **Ligar o Peer ID de rede à chave MLS do device** — hoje a chave MLS e a chave libp2p do device são independentes; nada prova que o Peer ID que conectou é do device que assinou no MLS. Possível: certificar os dois no mesmo `DeviceCertificate` ou assinar o Peer ID com a chave MLS | Fase 1.5 (Sessão 3) | Média (Fase 1.6/2) |
 | P6 | **D6 — Privacidade de metadados** — quanto entra no MVP vs Fase 7 | Spec original (Sessão 1) | Baixa |
 | P7 | **Nome definitivo** — `Kin` é provisório/"meio fixo"; pode mudar | Sessão 1 | Baixa |
@@ -30,6 +29,7 @@
 
 | ID | Item | Resolvida em |
 |---|---|---|
+| P14 | **Persistência do estado MLS** — `openmls_sqlite_storage` 0.3 + provider próprio (RustCrypto + SQLite, codec JSON), chave de device e conversas conhecidas no mesmo banco; `CryptoDevice::open`, `Conversation::load`, `Chat::open`. Ressalvas: sem cifra em repouso (segue em P13; arquivo 0600) e `CryptoDevice`/`Chat` ficam `!Send` (`rusqlite::Connection` não é `Sync`) | ✅ Sessão 3 (Fase 1.6b) |
 | P8 | **Estudar o prior art antes de codar** — achados em `STUDY.md`; 4 perguntas abertas listadas lá para a fase de decisões | ✅ Sessão 2 |
 | P3 | **D3 — Stack de rede**: `rust-libp2p` (decisão do usuário; ver `ARCHITECTURE.md`) | ✅ Sessão 2 |
 | P2 | **D2 — E2EE**: MLS via `openmls` (ver `ARCHITECTURE.md`) | ✅ Sessão 2 |

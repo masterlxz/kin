@@ -155,3 +155,83 @@ fn message_format_roundtrip_and_rejects_bad_input() {
     bad_utf8.push(0xff);
     assert!(Message::decode(&bad_utf8).is_err());
 }
+
+/// Reabre um chat persistente e conecta os dois em loopback; devolve quando ambos anunciam a conversa.
+#[tokio::test(flavor = "multi_thread")]
+async fn conversation_survives_restart_without_new_handshake() {
+    let dir = tempfile::tempdir().unwrap();
+    let (db_a, db_b) = (dir.path().join("a.db"), dir.path().join("b.db"));
+    let (id_a, id_b) = (
+        StandaloneIdentity::generate(),
+        StandaloneIdentity::generate(),
+    );
+    let (dev_a, dev_b) = (DeviceKey::generate(), DeviceKey::generate());
+    let open = |id: &StandaloneIdentity, dev: &DeviceKey, db: &std::path::Path| {
+        Chat::open(id, dev, NodeConfig { mdns: false }, db).unwrap()
+    };
+
+    // Primeira sessão: handshake e uma mensagem.
+    {
+        let (mut a, mut b) = (open(&id_a, &dev_a, &db_a), open(&id_b, &dev_b, &db_b));
+        let addr = listen(&mut a).await;
+        b.dial(addr).unwrap();
+        connect_until_ready(&mut a, &mut b).await;
+        a.send(dev_b.peer_id(), "antes", None).unwrap();
+        timeout(WAIT, async {
+            let drive_a = async {
+                loop {
+                    a.next_event().await;
+                }
+            };
+            tokio::select! { r = next_received(&mut b) => r, _ = drive_a => unreachable!() }
+        })
+        .await
+        .expect("sem mensagem");
+    }
+
+    // Segunda sessão: as conversas voltam do banco antes de qualquer conexão.
+    let (mut a, mut b) = (open(&id_a, &dev_a, &db_a), open(&id_b, &dev_b, &db_b));
+    assert!(a.is_ready(&dev_b.peer_id()) && b.is_ready(&dev_a.peer_id()));
+    assert_eq!(a.ready_peers(), vec![dev_b.peer_id()]);
+
+    let addr = listen(&mut a).await;
+    b.dial(addr).unwrap();
+    connect_until_ready(&mut a, &mut b).await;
+    let sent = b.send(dev_a.peer_id(), "depois", None).unwrap();
+    let (_, message) = timeout(WAIT, async {
+        let drive_b = async {
+            loop {
+                b.next_event().await;
+            }
+        };
+        tokio::select! { r = next_received(&mut a) => r, _ = drive_b => unreachable!() }
+    })
+    .await
+    .expect("sem mensagem");
+    assert_eq!(message.id, sent);
+    assert_eq!(message.text, "depois");
+}
+
+async fn listen(chat: &mut Chat) -> kin_transport::Multiaddr {
+    chat.listen_on("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+        .unwrap();
+    wait_for(chat, |e| match e {
+        ChatEvent::Listening(addr) => Some(addr),
+        _ => None,
+    })
+    .await
+}
+
+async fn connect_until_ready(a: &mut Chat, b: &mut Chat) {
+    let (mut ready_a, mut ready_b) = (false, false);
+    timeout(WAIT, async {
+        while !(ready_a && ready_b) {
+            tokio::select! {
+                e = a.next_event() => ready_a |= matches!(e, ChatEvent::ConversationReady { .. }),
+                e = b.next_event() => ready_b |= matches!(e, ChatEvent::ConversationReady { .. }),
+            }
+        }
+    })
+    .await
+    .expect("conversa não ficou pronta");
+}

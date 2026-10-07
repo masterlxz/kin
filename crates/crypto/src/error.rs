@@ -29,11 +29,20 @@ pub enum Error {
     /// Mensagem MLS que o Kin ainda não trata (propostas soltas, etc.).
     #[error("tipo de mensagem não suportado")]
     Unsupported,
+    /// O banco de estado já pertence a outra identidade.
+    #[error("o estado salvo pertence a outra identidade")]
+    IdentityMismatch,
+    #[error("armazenamento: {0}")]
+    Storage(String),
     #[error("falha no MLS: {0}")]
     Mls(String),
 }
 
 impl Error {
+    pub(crate) fn storage(e: impl std::fmt::Display) -> Self {
+        Self::Storage(e.to_string())
+    }
+
     pub(crate) fn mls(e: impl std::fmt::Display) -> Self {
         Self::Mls(e.to_string())
     }

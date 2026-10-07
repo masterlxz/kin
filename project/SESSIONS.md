@@ -128,5 +128,16 @@
     loop contínuo (o swarm só progride quando polado).
   - **Ressalva de segurança (P15)**: a identidade mostrada vem do certificado MLS, não da conexão; nada
     prova que o Peer ID que enviou o Welcome/KeyPackage é o device daquele certificado.
-- **Próximo passo**: Fase 1.7 (testes de integração entre dois nós, incluindo mDNS e reconexão) e, antes
-  do uso real, P14 (persistência MLS) — hoje reiniciar o `kin` perde a conversa e o handshake recomeça.
+- **P14 resolvida (Fase 1.6b)**: `kin-crypto` ganhou `Provider` próprio (RustCrypto + `SqliteStorageProvider`
+  com codec JSON; migrações antes de compartilhar a conexão em `Rc`). O mesmo banco guarda a chave de
+  assinatura MLS e o certificado do device (recarregados em `CryptoDevice::open`, que falha com
+  `IdentityMismatch` se o banco é de outra identidade) e a tabela `kin_conversations` (Peer ID → id do
+  grupo). `Conversation::load`; `Chat::open` recarrega as conversas e reanuncia `ConversationReady` a
+  cada reconexão, então não há novo handshake após reiniciar. Testes: 2 no crypto (reinício dos dois
+  lados com mensagem em voo e duplicata após reinício; mesma chave e rejeição de outra identidade) e 1
+  no chat; smoke test real da CLI em duas sessões seguidas ok.
+  **Custos assumidos**: `rusqlite::Connection` não é `Sync` → `CryptoDevice`/`Chat` são `!Send` (o clippy
+  barrou o `Arc`; usar `Rc`); um app Tauri/Flutter terá de manter o `Chat` numa thread dedicada ou
+  `LocalSet`. Banco sem cifra em repouso (P13), arquivo 0600. P9 segue aberta (commits concorrentes).
+- **Próximo passo**: Fase 1.7 (testes de integração entre dois nós: mDNS entre duas instâncias,
+  reconexão após queda, mensagens enviadas com o peer offline — hoje falham, sem outbox, D1).

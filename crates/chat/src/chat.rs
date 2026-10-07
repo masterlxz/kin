@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kin_crypto::{Conversation, CryptoDevice, Decrypted, Error as CryptoError};
@@ -46,7 +47,7 @@ pub enum ChatEvent {
 
 /// Chat 1:1: liga o transporte (`kin-transport`) à conversa cifrada (`kin-crypto`).
 ///
-/// Uma conversa por peer, em memória (P14). A ligação entre o Peer ID e a identidade MLS do
+/// Uma conversa por peer; persistente com [`Chat::open`], em memória com [`Chat::new`]. A ligação entre o Peer ID e a identidade MLS do
 /// peer ainda não é provada (P15): `identity` vem do certificado MLS, não da conexão.
 pub struct Chat {
     node: Node,
@@ -58,23 +59,56 @@ pub struct Chat {
 }
 
 impl Chat {
-    /// `device_key` fornece o Peer ID da rede; a chave MLS do device é gerada e certificada por
-    /// `identity`.
+    /// Chat só em memória: `device_key` fornece o Peer ID da rede; a chave MLS do device é gerada
+    /// e certificada por `identity`. Nada sobrevive ao processo.
     pub fn new(
         identity: &dyn IdentityProvider,
         device_key: &DeviceKey,
         config: NodeConfig,
     ) -> Result<Self, Error> {
-        let created_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
+        let device = CryptoDevice::new(identity, now_secs())?;
+        Self::with_device(device, device_key, config)
+    }
+
+    /// Chat persistente: o estado MLS e a lista de conversas ficam no banco SQLite `db`. Ao
+    /// reabrir, as conversas voltam sozinhas e já aceitam mensagens, sem novo handshake.
+    pub fn open(
+        identity: &dyn IdentityProvider,
+        device_key: &DeviceKey,
+        config: NodeConfig,
+        db: &Path,
+    ) -> Result<Self, Error> {
+        let device = CryptoDevice::open(identity, db, now_secs())?;
+        let mut chat = Self::with_device(device, device_key, config)?;
+        for (label, id) in chat.device.remembered()? {
+            // Rótulo ou conversa que não carregam mais são ignorados: o handshake refaz.
+            let Ok(peer) = label.parse::<PeerId>() else {
+                continue;
+            };
+            if let Some(conversation) = Conversation::load(&chat.device, &id)? {
+                chat.conversations.insert(peer, conversation);
+            }
+        }
+        Ok(chat)
+    }
+
+    fn with_device(
+        device: CryptoDevice,
+        device_key: &DeviceKey,
+        config: NodeConfig,
+    ) -> Result<Self, Error> {
         Ok(Self {
             node: Node::new(device_key.keypair().clone(), config)?,
-            device: CryptoDevice::new(identity, created_at)?,
+            device,
             conversations: HashMap::new(),
             pending: HashMap::new(),
             queue: Default::default(),
         })
+    }
+
+    /// Peers com conversa pronta (inclusive as recarregadas do banco).
+    pub fn ready_peers(&self) -> Vec<PeerId> {
+        self.conversations.keys().copied().collect()
     }
 
     pub fn peer_id(&self) -> PeerId {
@@ -133,6 +167,7 @@ impl Chat {
             NodeEvent::Listening(addr) => self.queue.push_back(ChatEvent::Listening(addr)),
             NodeEvent::PeerConnected(peer) => {
                 self.queue.push_back(ChatEvent::PeerConnected(peer));
+                self.announce_if_ready(peer);
                 self.transmit(peer, &Envelope::Hello);
             }
             NodeEvent::PeerDisconnected(peer) => {
@@ -201,15 +236,24 @@ impl Chat {
     }
 
     fn ready(&mut self, peer: PeerId, conversation: Conversation) -> Result<(), Error> {
-        let identity = conversation
-            .peers()?
-            .into_iter()
-            .next()
-            .ok_or(Error::Malformed)?;
+        self.device
+            .remember(&peer.to_string(), &conversation.id())?;
         self.conversations.insert(peer, conversation);
-        self.queue
-            .push_back(ChatEvent::ConversationReady { peer, identity });
+        self.announce_if_ready(peer);
         Ok(())
+    }
+
+    /// Avisa a aplicação que a conversa com `peer` está pronta (nova ou recarregada do banco).
+    fn announce_if_ready(&mut self, peer: PeerId) {
+        let identity = self
+            .conversations
+            .get(&peer)
+            .and_then(|c| c.peers().ok())
+            .and_then(|peers| peers.into_iter().next());
+        if let Some(identity) = identity {
+            self.queue
+                .push_back(ChatEvent::ConversationReady { peer, identity });
+        }
     }
 
     fn on_mls(&mut self, peer: PeerId, wire: &[u8]) -> Result<(), Error> {
@@ -245,4 +289,10 @@ impl Chat {
             reason: error.to_string(),
         });
     }
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }

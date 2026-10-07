@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use kin_identity::{IdentityId, IdentityProvider, public_key_from_ed25519};
 use openmls::prelude::tls_codec::Serialize as _;
@@ -6,45 +6,85 @@ use openmls::prelude::{
     BasicCredential, Ciphersuite, CredentialWithKey, KeyPackage, SignatureScheme,
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::OpenMlsProvider as _;
 
 use crate::Error;
+use crate::provider::Provider;
 
 pub(crate) const CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
 pub(crate) struct Inner {
-    pub(crate) provider: OpenMlsRustCrypto,
+    pub(crate) provider: Provider,
     pub(crate) signer: SignatureKeyPair,
     pub(crate) credential: CredentialWithKey,
     pub(crate) identity: IdentityId,
 }
 
 /// Material criptográfico de um device: chave de assinatura MLS própria, certificada pela
-/// identidade, e o estado (em memória) de todas as suas conversas. Clonar é barato.
+/// identidade, e o estado (SQLite) de todas as suas conversas. Clonar é barato. Não é `Send`: a
+/// conexão SQLite não é `Sync`, então o device vive numa thread só (ex.: `LocalSet`).
 #[derive(Clone)]
-pub struct CryptoDevice(pub(crate) Arc<Inner>);
+pub struct CryptoDevice(pub(crate) Rc<Inner>);
 
 impl CryptoDevice {
-    /// Gera a chave MLS do device e a certifica com `identity` (`created_at` em segundos Unix).
+    /// Device só em memória: gera a chave MLS e a certifica com `identity` (`created_at` em segundos
+    /// Unix). Nada sobrevive ao processo.
     pub fn new(identity: &dyn IdentityProvider, created_at: u64) -> Result<Self, Error> {
-        let provider = OpenMlsRustCrypto::default();
-        let signer = SignatureKeyPair::new(SignatureScheme::ED25519).map_err(Error::mls)?;
-        signer.store(provider.storage()).map_err(Error::mls)?;
+        Self::build(Provider::open(None)?, identity, created_at)
+    }
 
-        let device_key = public_key_from_ed25519(signer.public())?;
-        let certificate = identity.authorize_device(&device_key, created_at)?;
+    /// Device persistente: o estado MLS vive no banco SQLite em `path`. Na primeira vez gera e
+    /// certifica a chave; nas seguintes recarrega a mesma (e falha se o banco é de outra identidade).
+    pub fn open(
+        identity: &dyn IdentityProvider,
+        path: &std::path::Path,
+        created_at: u64,
+    ) -> Result<Self, Error> {
+        Self::build(Provider::open(Some(path))?, identity, created_at)
+    }
+
+    fn build(
+        provider: Provider,
+        identity: &dyn IdentityProvider,
+        created_at: u64,
+    ) -> Result<Self, Error> {
+        let (signer, certificate) = match load_signer(&provider)? {
+            Some(found) => found,
+            None => {
+                let signer = SignatureKeyPair::new(SignatureScheme::ED25519).map_err(Error::mls)?;
+                signer.store(provider.storage()).map_err(Error::mls)?;
+                let device_key = public_key_from_ed25519(signer.public())?;
+                let certificate = identity.authorize_device(&device_key, created_at)?;
+                provider.set_meta(META_SIGNER, signer.public())?;
+                provider.set_meta(META_CERT, &certificate.to_bytes())?;
+                (signer, certificate)
+            }
+        };
+        if certificate.identity != identity.id() {
+            return Err(Error::IdentityMismatch);
+        }
         let credential = CredentialWithKey {
             credential: BasicCredential::new(certificate.to_bytes()).into(),
             signature_key: signer.public().into(),
         };
-        Ok(Self(Arc::new(Inner {
+        Ok(Self(Rc::new(Inner {
             provider,
             signer,
             credential,
             identity: identity.id(),
         })))
+    }
+
+    /// Guarda que a conversa `conversation_id` pertence a `label` (ex.: um Peer ID), para
+    /// recarregá-la depois de reiniciar.
+    pub fn remember(&self, label: &str, conversation_id: &[u8]) -> Result<(), Error> {
+        self.0.provider.remember(label, conversation_id)
+    }
+
+    /// Pares `(label, conversation_id)` guardados com [`Self::remember`].
+    pub fn remembered(&self) -> Result<Vec<(String, Vec<u8>)>, Error> {
+        self.0.provider.remembered()
     }
 
     /// Identidade a quem este device pertence.
@@ -67,4 +107,21 @@ impl CryptoDevice {
             .tls_serialize_detached()
             .map_err(Error::mls)
     }
+}
+
+const META_SIGNER: &str = "signer_public";
+const META_CERT: &str = "device_certificate";
+
+/// Recarrega a chave de assinatura e o certificado salvos, se existirem.
+fn load_signer(
+    provider: &Provider,
+) -> Result<Option<(SignatureKeyPair, kin_identity::DeviceCertificate)>, Error> {
+    let (Some(public), Some(cert)) = (provider.meta(META_SIGNER)?, provider.meta(META_CERT)?)
+    else {
+        return Ok(None);
+    };
+    let signer = SignatureKeyPair::read(provider.storage(), &public, SignatureScheme::ED25519)
+        .ok_or_else(|| Error::storage("chave de assinatura ausente no banco"))?;
+    let cert = kin_identity::DeviceCertificate::from_bytes(&cert)?;
+    Ok(Some((signer, cert)))
 }

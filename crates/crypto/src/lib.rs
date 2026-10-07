@@ -2,6 +2,8 @@
 //!
 //! Uma conversa 1:1 é um grupo MLS de dois membros. Cada device tem uma chave de assinatura MLS
 //! própria, certificada pela identidade (`DeviceCertificate`, D7) e carregada na credencial MLS.
+//! O estado MLS fica em SQLite ([`CryptoDevice::open`]) ou só em memória ([`CryptoDevice::new`]);
+//! sem cifra em repouso ainda (P13).
 //! Todas as mensagens saem como `Vec<u8>`, independentes do transporte (D1).
 //!
 //! Entrega at-least-once e sem ordem garantida (P9): duplicatas e mensagens velhas demais viram
@@ -11,6 +13,7 @@ mod conversation;
 mod credential;
 mod device;
 mod error;
+mod provider;
 
 pub use conversation::{Conversation, Decrypted, Invite};
 pub use device::CryptoDevice;

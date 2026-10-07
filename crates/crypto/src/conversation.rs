@@ -1,7 +1,7 @@
 use kin_identity::IdentityId;
 use openmls::prelude::tls_codec::Deserialize as _;
 use openmls::prelude::{
-    KeyPackageIn, MlsGroup, MlsGroupCreateConfig, MlsMessageBodyIn, MlsMessageIn,
+    GroupId, KeyPackageIn, MlsGroup, MlsGroupCreateConfig, MlsMessageBodyIn, MlsMessageIn,
     ProcessedMessageContent, ProtocolVersion, SenderRatchetConfiguration, StagedWelcome,
 };
 
@@ -73,6 +73,16 @@ impl Conversation {
             device: device.clone(),
             group,
         })
+    }
+
+    /// Recarrega do banco uma conversa já existente; `None` se não houver com esse id.
+    pub fn load(device: &CryptoDevice, id: &[u8]) -> Result<Option<Self>, Error> {
+        let group = MlsGroup::load(device.0.provider.storage(), &GroupId::from_slice(id))
+            .map_err(Error::mls)?;
+        Ok(group.map(|group| Self {
+            device: device.clone(),
+            group,
+        }))
     }
 
     /// Entra numa conversa a partir de um Welcome. Confere a credencial de todos os membros;

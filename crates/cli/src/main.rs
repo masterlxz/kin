@@ -87,7 +87,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         e
     })?;
     let (identity, device) = load_keys(&args.data_dir)?;
-    let mut chat = Chat::new(&identity, &device, NodeConfig { mdns: args.mdns })?;
+    let config = NodeConfig { mdns: args.mdns };
+    let mut chat = Chat::open(
+        &identity,
+        &device,
+        config,
+        &args.data_dir.join("mls.sqlite"),
+    )?;
     println!(
         "kin {} — peer id: {}",
         env!("CARGO_PKG_VERSION"),
