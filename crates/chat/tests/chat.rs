@@ -1,11 +1,10 @@
-use std::time::Duration;
+mod common;
 
+use common::{WAIT, connect_until_ready, listen, next_received, wait_for};
 use kin_chat::{Chat, ChatEvent, Message, MessageId};
 use kin_identity::{DeviceKey, IdentityId, IdentityProvider, StandaloneIdentity};
 use kin_transport::{NodeConfig, PeerId};
 use tokio::time::timeout;
-
-const WAIT: Duration = Duration::from_secs(20);
 
 struct Person {
     identity_id: IdentityId,
@@ -21,15 +20,6 @@ fn person() -> Person {
         identity_id: identity.id(),
         peer_id: device.peer_id(),
         chat,
-    }
-}
-
-/// Avança o chat até um evento que o filtro aceita; descarta os demais.
-async fn wait_for<T>(chat: &mut Chat, mut pick: impl FnMut(ChatEvent) -> Option<T>) -> T {
-    loop {
-        if let Some(found) = pick(chat.next_event().await) {
-            return found;
-        }
     }
 }
 
@@ -66,16 +56,6 @@ async fn ready_pair() -> (Person, Person) {
     assert_eq!(ready_a, Some((pb, b.identity_id.clone())));
     assert_eq!(ready_b, Some((pa, a.identity_id.clone())));
     (a, b)
-}
-
-async fn next_received(chat: &mut Chat) -> (IdentityId, Message) {
-    wait_for(chat, |e| match e {
-        ChatEvent::Received {
-            sender, message, ..
-        } => Some((sender, message)),
-        _ => None,
-    })
-    .await
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -210,28 +190,4 @@ async fn conversation_survives_restart_without_new_handshake() {
     .expect("sem mensagem");
     assert_eq!(message.id, sent);
     assert_eq!(message.text, "depois");
-}
-
-async fn listen(chat: &mut Chat) -> kin_transport::Multiaddr {
-    chat.listen_on("/ip4/127.0.0.1/tcp/0".parse().unwrap())
-        .unwrap();
-    wait_for(chat, |e| match e {
-        ChatEvent::Listening(addr) => Some(addr),
-        _ => None,
-    })
-    .await
-}
-
-async fn connect_until_ready(a: &mut Chat, b: &mut Chat) {
-    let (mut ready_a, mut ready_b) = (false, false);
-    timeout(WAIT, async {
-        while !(ready_a && ready_b) {
-            tokio::select! {
-                e = a.next_event() => ready_a |= matches!(e, ChatEvent::ConversationReady { .. }),
-                e = b.next_event() => ready_b |= matches!(e, ChatEvent::ConversationReady { .. }),
-            }
-        }
-    })
-    .await
-    .expect("conversa não ficou pronta");
 }

@@ -4,7 +4,7 @@
 > Toda pendência encontrada em qualquer arquivo do projeto deve ser registrada aqui com um ID único.
 > Ao resolver uma, marcar como `✅ Resolvida` com a sessão em que foi corrigida.
 >
-> Última atualização: 2026-10-06 (Sessão 3)
+> Última atualização: 2026-10-07 (Sessão 3)
 
 ---
 
@@ -20,6 +20,7 @@
 | P12 | **Vínculo Kin ↔ TruthID** — (a) como verificar a prova "chave Kin pertence à identidade TruthID" (RPC da Base vs prova off-chain assinada); (b) raiz da hierarquia de chaves no modo TruthID (wallet → delegação ao Kin); (c) como o Kin fala com o TruthID (crate, serviço local ou só formato de chave compatível) | D7 (Sessão 3) | Baixa (Fase 1 usa só o provedor standalone; resolver antes de expor o vínculo) |
 | P13 | **Chave mestra sem cifra em repouso** — `StandaloneIdentity::save` grava o keypair em arquivo com permissão 0600, mas sem senha/keystore do SO. Definir proteção (senha, keyring do SO, Secure Enclave/Keystore no mobile) antes de qualquer uso além de desenvolvimento | Fase 1.2 (Sessão 3) | Média (antes de distribuir o app) |
 | P15 | **Ligar o Peer ID de rede à chave MLS do device** — hoje a chave MLS e a chave libp2p do device são independentes; nada prova que o Peer ID que conectou é do device que assinou no MLS. Possível: certificar os dois no mesmo `DeviceCertificate` ou assinar o Peer ID com a chave MLS | Fase 1.5 (Sessão 3) | Média (Fase 1.6/2) |
+| P16 | **Re-handshake após perda de estado** — se um lado perde o banco (ou reinstala), o outro continua com a conversa antiga: `on_hello`/`on_welcome` ignoram quem já tem conversa, o handshake não se refaz, o remetente recebe `Delivered` (ack de transporte) mas o destino só emite `Dropped`, e quem tem o estado ainda reanuncia `ConversationReady`. Precisa de um jeito de detectar conversa divergente (ex.: reset assinado / nova conversa que substitui a antiga, ligado a P15 e P9) | Fase 1.7 (Sessão 3) | Média (antes de distribuir o app; teste `peer_that_lost_its_database_is_not_rehandshaked_yet` documenta o estado atual) |
 | P6 | **D6 — Privacidade de metadados** — quanto entra no MVP vs Fase 7 | Spec original (Sessão 1) | Baixa |
 | P7 | **Nome definitivo** — `Kin` é provisório/"meio fixo"; pode mudar | Sessão 1 | Baixa |
 

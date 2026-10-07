@@ -139,5 +139,17 @@
   **Custos assumidos**: `rusqlite::Connection` não é `Sync` → `CryptoDevice`/`Chat` são `!Send` (o clippy
   barrou o `Arc`; usar `Rc`); um app Tauri/Flutter terá de manter o `Chat` numa thread dedicada ou
   `LocalSet`. Banco sem cifra em repouso (P13), arquivo 0600. P9 segue aberta (commits concorrentes).
-- **Próximo passo**: Fase 1.7 (testes de integração entre dois nós: mDNS entre duas instâncias,
-  reconexão após queda, mensagens enviadas com o peer offline — hoje falham, sem outbox, D1).
+- **Fase 1.7 feita** (só testes, nenhum código de produção alterado): `crates/chat/tests/two_nodes.rs` com 6
+  cenários e helpers extraídos para `tests/common/mod.rs` (agora usados também por `chat.rs`):
+  1. mDNS no chat (duas instâncias se acham e conversam sem `dial`);
+  2. envio a peer offline → `SendFailed`, nunca `Delivered` (lacuna do outbox, D1/Fase 3);
+  3. quem disca reinicia (outra porta, mesmo banco) → conversa volta sem novo handshake;
+  4. quem escuta reinicia → o outro redisca, idem;
+  5. mensagens em voo na queda não são reentregues, só as novas chegam, uma vez cada;
+  6. um lado perde o banco → o handshake **não** se refaz (ver P16).
+  Achados: `Node` não tem API de desconectar (queda nos testes = `drop`); com banco perdido, o lado que
+  ainda tem estado reanuncia `ConversationReady` e o remetente recebe `Delivered` por mensagens que o
+  destino só descarta (`Dropped`) → **P16** aberta. Estável em 5 execuções seguidas; `cargo test
+  --workspace`, clippy e fmt ok.
+- **Próximo passo**: fechar a Fase 1 — P15 (Peer ID ↔ chave MLS) e teste manual entre duas redes reais
+  (critério "pela internet"; o 1.4 só foi validado em loopback). Depois, Fase 2.

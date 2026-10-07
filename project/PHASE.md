@@ -34,7 +34,7 @@
 - [x] 1.5 — E2EE 1:1 (conforme D2) — `kin-crypto` sobre `openmls` 0.9: `CryptoDevice`, `Conversation` (create/invite/join/encrypt/decrypt/rotate_keys), estado em memória (Sessão 3)
 - [x] 1.6 — Chat 1:1 mínimo (desktop primeiro); formato de mensagem já com `parent_message_id` para threads (D4) — `Node::send` com ack no transporte, `kin-chat` (`Chat`, `Message`, handshake in-band) e CLI `kin` em modo terminal; estado ainda em memória (Sessão 3)
 - [x] 1.6b — Persistência do estado MLS (P14): SQLite via `openmls_sqlite_storage`; conversas sobrevivem a reinício (Sessão 3)
-- [ ] 1.7 — Testes de integração com dois nós
+- [x] 1.7 — Testes de integração com dois nós — `crates/chat/tests/two_nodes.rs` (6 cenários em loopback + mDNS: descoberta, peer offline, reinício de quem disca e de quem escuta, mensagens em voo, banco perdido) e helpers em `tests/common` (Sessão 3)
 
 **Critério de pronto**: Fabio e amigo conversam na mesma rede e pela internet quando há conectividade
 direta.
