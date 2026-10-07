@@ -8,3 +8,10 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+libp2p-identity.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

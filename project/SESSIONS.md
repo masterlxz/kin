@@ -79,4 +79,10 @@
   (1.3 e 1.5). Escolhas: workspace com vários crates (mais organizado, reaproveitável pelo Tauri/Flutter);
   CI adiado até haver testes reais (depois da 1.2). `Cargo.lock` passou a ser versionado.
   `cargo clippy -D warnings` e `cargo test` limpos.
-- **Próximo passo**: Fase 1.2 (crate `identity`: provedor standalone Ed25519, chave de device, Peer ID).
+- **Fase 1.2 feita**: crate `kin-identity` sobre `libp2p-identity` 0.3 (só a parte de chaves/PeerId,
+  sem puxar a stack libp2p inteira). Trait `IdentityProvider` (id, sign, authorize_device);
+  `StandaloneIdentity` (Ed25519, save/load em arquivo 0600); `DeviceKey` (Peer ID derivado, expõe o
+  `Keypair` para o transporte); `DeviceCertificate` assinado pela identidade com separador de domínio
+  (`kin/device-cert/v1`) e `verify()`. 6 testes de integração (assinatura, certificado adulterado/forjado/
+  device trocado, roundtrip de arquivo + permissão, bytes inválidos). P13 aberta (chave sem cifra em repouso).
+- **Próximo passo**: Fase 1.3 (descoberta em LAN via mDNS no crate `transport`, com `libp2p` 0.57).

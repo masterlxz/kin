@@ -17,6 +17,9 @@ all = "warn"
 [workspace.dependencies]
 # Dependências externas entram aqui e são herdadas pelos crates que as usam.
 # Previstas: libp2p 0.57 (D3, transport/overlay), openmls 0.9 (D2, crypto).
+libp2p-identity = { version = "0.3", features = ["ed25519", "peerid", "rand"] }
+thiserror = "2"
+tempfile = "3"
 kin-identity = { path = "crates/identity" }
 kin-transport = { path = "crates/transport" }
 kin-overlay = { path = "crates/overlay" }
