@@ -16,6 +16,7 @@
 | D4 — Posicionamento do produto | WhatsApp-like vs Slack/Discord-like vs broadcast | **Híbrido** ✓ — decidido na Sessão 2 (2026-10-06): pessoal estilo WhatsApp + workspaces estilo Slack/Discord, com threads em todo o app. Ver "D4 — decisão" abaixo |
 | D5 — Anti-spam / Sybil | Rate limit, PoW, convites, reputação TruthID, depósito | **Contato por consentimento (modelo de amizade)** ✓ — decidido na Sessão 2 (2026-10-06). Ver "D5 — decisão" abaixo |
 | D6 — Metadados | Quanto de privacidade de metadados no MVP | **Em aberto** — provavelmente pouco no MVP; resto na Fase 7 |
+| D7 — Identidade (provedores) | TruthID obrigatório vs keypair próprio vs abstração com os dois | **Abstração com dois provedores** ✓ — decidido na Sessão 3 (2026-10-06): standalone (padrão) + TruthID opcional. Ver "D7 — decisão" abaixo |
 
 ---
 
@@ -208,3 +209,36 @@ ou filtro por reputação TruthID).
 
 E2EE protege conteúdo, não quem fala com quem e quando. Definir quanto de privacidade de metadados
 entra no MVP (provavelmente pouco) e quanto fica para a Fase 7.
+
+### D7 — decisão: identidade com provedores (standalone + TruthID opcional)
+
+**Decidido na Sessão 3 (2026-10-06)**, a pedido do usuário: o TruthID é a identidade do ecossistema,
+mas o Kin tem de funcionar também para quem **não usa o TruthID**.
+
+**Achado que motivou**: o TruthID real é on-chain (wallet/Ledger → smart account ERC-4337 na Base,
+username, `identityId`, devices pareados) e **não tem hoje um "modo local" reutilizável como crate**
+(desktop em Tauri/TS; único crate Rust fica em `desktop/src-tauri`). O `CONTEXT.md` assumia o contrário.
+
+**Decisão**: o módulo `identity` define uma abstração, e o resto do Kin (transport, crypto, chat)
+só enxerga ela:
+- ID estável da identidade (chave pública);
+- capacidade de **assinar**;
+- **autorização de devices** ("este device pertence a esta identidade").
+
+Provedores:
+1. **Standalone (padrão)** — keypair Ed25519 gerado pelo Kin; sem conta, sem blockchain. É o que a
+   Fase 1 implementa.
+2. **TruthID (opcional)** — o usuário vincula a identidade TruthID. O Kin guarda uma **prova assinada**
+   "esta chave Kin pertence a esta identidade TruthID", que viaja no `ANNOUNCE` e no convite.
+
+**Promoção sem perda**: a chave de mensagens é a mesma nos dois casos; vincular o TruthID só adiciona
+a prova. Contatos e conversas sobrevivem.
+
+**Consequências**:
+- Fase 1.2 implementa só o provedor standalone, mas com a interface pronta para o TruthID.
+- Raiz da hierarquia de chaves: standalone = Master Identity Key gerada pelo Kin; TruthID = raiz na
+  wallet, o Kin recebe uma delegação (P12).
+- O vínculo é só uma alegação até ser verificado (consulta à chain/RPC da Base ou prova off-chain) — P12.
+
+**Reabrir se**: o TruthID ganhar um modo local/SDK Rust reutilizável (aí o provedor standalone pode
+passar a ser esse modo).

@@ -130,8 +130,9 @@ Identidade (TruthID)
            └── Device B → Peer ID B
 ```
 
-- **TruthID não precisa de blockchain para isso.** O modo de identidade local do TruthID (keypair
-  local, sem registro on-chain) basta para o MVP. O registro on-chain pode resolver
+- **Identidade com provedores (D7)**: o Kin funciona sem TruthID (provedor *standalone*, keypair
+  Ed25519 gerado pelo app) e aceita o TruthID como provedor opcional, via prova assinada de vínculo.
+  O TruthID real é on-chain e não tem hoje um modo local reutilizável; o MVP usa o standalone. O registro on-chain pode resolver
   `identidade → devices/chaves` em fase posterior.
 - O Peer ID de rede é derivado da chave do device. A identidade pertence ao **ecossistema**, não ao
   app de mensagens.

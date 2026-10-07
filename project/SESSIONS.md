@@ -59,3 +59,19 @@
   ser verificada na documentação oficial antes de virar premissa.
 - **Próximo passo**: Fase 1.1 (setup do workspace Rust com os módulos identity, transport, overlay,
   crypto e chat). D6 (metadados) pode esperar até a Fase 4. Ainda sem código.
+
+---
+
+### 2026-10-06 — Sessão 3
+
+- **Objetivo**: retomar após a Fase 0; ia começar a 1.1 (workspace Rust).
+- **Dúvida do usuário**: o TruthID seria a identidade? Confirmado que já constava na spec (Sessão 1),
+  mas o *como* nunca foi definido.
+- **Achado**: o TruthID real é on-chain (wallet/Ledger → smart account ERC-4337 na Base) e não tem
+  modo local reutilizável como crate; o `CONTEXT.md` assumia o contrário.
+- **Decisão D7** (pedido do usuário): TruthID como identidade, mas utilizável por quem não é usuário
+  dele → abstração com dois provedores: **standalone (padrão, Ed25519)** + **TruthID opcional** via
+  prova assinada de vínculo; promoção sem perda de contatos. Fase 1.2 ajustada. P12 aberta
+  (verificação do vínculo, raiz de chaves, integração).
+- **Próximo passo**: Fase 1.1 (workspace Rust com identity, transport, overlay, crypto, chat). Ainda
+  sem código; dúvidas pendentes: vários crates vs crate único, e CI agora ou depois.

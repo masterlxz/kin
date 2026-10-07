@@ -16,7 +16,7 @@ Stack planejada (ainda não decidida — ver D3 em `ARCHITECTURE.md`):
 - **Mobile**: Flutter via FFI/`flutter_rust_bridge` (mesmo padrão do TruthID)
 - **E2EE**: MLS (RFC 9420, ex. `openmls`) vs Double Ratchet — ver D2
 - **Chamadas**: WebRTC + STUN/TURN (Fase 6)
-- **Identidade**: TruthID (modo de identidade local, sem on-chain no MVP)
+- **Identidade**: provedores (D7) — standalone (keypair Ed25519, padrão no MVP) + TruthID opcional via prova de vínculo
 - **Mailbox offline**: em aberto — hipótese "outbox local + relays Nostr como fallback" (D1)
 
 **Ecossistema**: TruthID (identidade), Warden, Anchor, Lume. O Kin é um projeto **separado** do

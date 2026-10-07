@@ -4,7 +4,7 @@
 > Toda pendência encontrada em qualquer arquivo do projeto deve ser registrada aqui com um ID único.
 > Ao resolver uma, marcar como `✅ Resolvida` com a sessão em que foi corrigida.
 >
-> Última atualização: 2026-10-06 (Sessão 2)
+> Última atualização: 2026-10-06 (Sessão 3)
 
 ---
 
@@ -17,6 +17,7 @@
 | P9 | **Ordenação de commits MLS sem Delivery Service** — como peers resolvem commits concorrentes e como um device offline recupera commits perdidos (consequência de D2; assumir entrega at-least-once sem ordem garantida, ver D1) | D2 (Sessão 2) | Alta (Fase 1.5 / 3) |
 | P10 | **Workspaces sem servidor** — (a) histórico compartilhado: MLS não dá histórico a quem entra depois, como sincronizar de peers/mailbox; (b) papéis/permissões (admin, membro) sem autoridade central, ex.: log de membership assinado; (c) custo de commits MLS em workspaces grandes; (d) onde guardar o estado do workspace | D4 (Sessão 2) | Média (Fase 5/6; molda o formato de mensagem desde a Fase 1) |
 | P11 | **Solicitação de amizade sem servidor** — formato assinado pré-sessão MLS; onde entregar a solicitação com o destinatário offline (endpoint público = alvo de spam em relays/mailboxes); pesquisa por nome/identidade (depende de DHT, Fase 4); aceite que cria a sessão MLS | D5 (Sessão 2) | Média (Fase 2 para link/QR; Fase 4 para pesquisa) |
+| P12 | **Vínculo Kin ↔ TruthID** — (a) como verificar a prova "chave Kin pertence à identidade TruthID" (RPC da Base vs prova off-chain assinada); (b) raiz da hierarquia de chaves no modo TruthID (wallet → delegação ao Kin); (c) como o Kin fala com o TruthID (crate, serviço local ou só formato de chave compatível) | D7 (Sessão 3) | Baixa (Fase 1 usa só o provedor standalone; resolver antes de expor o vínculo) |
 | P6 | **D6 — Privacidade de metadados** — quanto entra no MVP vs Fase 7 | Spec original (Sessão 1) | Baixa |
 | P7 | **Nome definitivo** — `Kin` é provisório/"meio fixo"; pode mudar | Sessão 1 | Baixa |
 

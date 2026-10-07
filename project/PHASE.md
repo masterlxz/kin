@@ -28,7 +28,7 @@
 
 **Etapas** (preliminares):
 - [ ] 1.1 — Setup do núcleo Rust + estrutura de módulos (identity, transport, overlay, crypto, chat)
-- [ ] 1.2 — Identidade local (modo local do TruthID) + chave de device + Peer ID derivado
+- [ ] 1.2 — Identidade com provedores (D7): provedor standalone (keypair Ed25519) + interface pronta para o TruthID opcional; chave de device + Peer ID derivado
 - [ ] 1.3 — Descoberta em LAN via mDNS
 - [ ] 1.4 — Conexão direta pela internet (IP alcançável)
 - [ ] 1.5 — E2EE 1:1 (conforme D2)

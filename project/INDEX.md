@@ -1,6 +1,6 @@
 # Kin — Estado do Projeto
 
-> Última atualização: 2026-10-06 (Sessão 2 — estudo de prior art concluído, `STUDY.md`; Fase 0 concluída: D1–D5 decididas, só D6 em aberto). Sessão 1 (2026-09-27 — projeto criado a partir da spec original
+> Última atualização: 2026-10-06 (Sessão 3 — D7 identidade com provedores; Sessão 2 — estudo de prior art concluído, `STUDY.md`; Fase 0 concluída: D1–D5 decididas, só D6 em aberto). Sessão 1 (2026-09-27 — projeto criado a partir da spec original
 > `SPEC-rede-comunicacao-p2p.md`, cujo conteúdo foi distribuído nestes arquivos e o arquivo
 > removido). **Status: pré-projeto** — ideia registrada, ainda não iniciado; entra na fila do
 > ecossistema depois dos projetos em andamento.
@@ -20,7 +20,7 @@ Leia o arquivo relevante para o que você precisa:
 | Visão geral, stack, status das fases | `OVERVIEW.md` |
 | PRD (visão, objetivos, arquitetura em camadas, identidade, conectividade) | `CONTEXT.md` |
 | **Todas as fases detalhadas** | **`PHASE.md`** |
-| Decisões de arquitetura (decisões D1–D5 tomadas; D6 em aberto) | `ARCHITECTURE.md` |
+| Decisões de arquitetura (decisões D1–D5 e D7 tomadas; D6 em aberto) | `ARCHITECTURE.md` |
 | **Pendências (resolvidas e não resolvidas)** | **`PENDING.md`** |
 | Roadmap, prior art (lista), riscos, blockchain (Fase 8) | `ROADMAP.md` |
 | **Estudo de prior art (Fase 0.1)** — achados por projeto e síntese por decisão | **`STUDY.md`** |
