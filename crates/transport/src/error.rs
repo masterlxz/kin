@@ -5,6 +5,8 @@ pub enum Error {
     Build(String),
     #[error("endereço inválido: {0}")]
     Address(#[from] libp2p::multiaddr::Error),
+    #[error("falha ao conectar: {0}")]
+    Dial(String),
     #[error("falha ao escutar: {0}")]
     Listen(#[from] libp2p::TransportError<std::io::Error>),
 }

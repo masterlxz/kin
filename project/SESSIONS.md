@@ -92,5 +92,13 @@
   PeerDisconnected}`. Teste de integração com dois nós no mesmo processo (8/8 execuções ok, ~0,08 s).
   Ressalva: o teste depende de multicast local; pode falhar em CI/containers sem multicast (relevante
   quando o CI entrar).
-- **Próximo passo**: Fase 1.4 (conexão direta pela internet com IP alcançável: dial por endereço,
-  endereços externos, `identify`).
+- **Fase 1.4 feita**: `Node::new(keypair, NodeConfig)` com mDNS opcional (`Toggle`), `listen_on`,
+  `dial` por multiaddr e `identify` (feature adicionada ao `libp2p`). Novos eventos:
+  `PeerIdentified {peer, listen_addrs, observed_addr}` e `DialFailed`. Testes (`tests/direct.rs`):
+  dial por endereço + troca de identify, os dois lados enxergam a conexão, e **dial com Peer ID errado
+  é recusado** (o Noise prova a identidade do outro lado). Tudo em loopback (4 testes + o de mDNS ok).
+  **Ressalva**: ainda não testado entre duas redes reais (IP público); só confirma que o caminho
+  funciona sem mDNS. O `observed_addr` do identify não é adotado como endereço externo (isso é
+  AutoNAT/DCUtR, Fase 2).
+- **Próximo passo**: Fase 1.5 (E2EE 1:1 com MLS/`openmls` no crate `crypto`; atenção a P9, ordenação
+  de commits sem Delivery Service).

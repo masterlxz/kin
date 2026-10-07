@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use kin_identity::DeviceKey;
-use kin_transport::{Node, NodeEvent, PeerId};
+use kin_transport::{Node, NodeConfig, NodeEvent, PeerId};
 use tokio::time::timeout;
 
 /// Dirige o nó até ele conectar com `target`.
@@ -19,8 +19,8 @@ async fn two_nodes_discover_each_other_on_lan_and_connect() {
     let key_b = DeviceKey::generate();
     let (id_a, id_b) = (key_a.peer_id(), key_b.peer_id());
 
-    let mut a = Node::new(key_a.keypair().clone()).unwrap();
-    let mut b = Node::new(key_b.keypair().clone()).unwrap();
+    let mut a = Node::new(key_a.keypair().clone(), NodeConfig::default()).unwrap();
+    let mut b = Node::new(key_b.keypair().clone(), NodeConfig::default()).unwrap();
     assert_eq!(a.peer_id(), id_a);
     a.listen().unwrap();
     b.listen().unwrap();
