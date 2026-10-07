@@ -1,0 +1,40 @@
+/// Erros do crate `crypto`.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("identidade: {0}")]
+    Identity(#[from] kin_identity::Error),
+    /// A credencial MLS não traz um certificado válido, ou ele não cobre a chave do device.
+    #[error("credencial inválida")]
+    InvalidCredential,
+    /// O certificado é válido, mas de uma identidade diferente da esperada.
+    #[error("identidade diferente da esperada")]
+    UnexpectedIdentity,
+    #[error("mensagem malformada")]
+    Malformed,
+    /// Mensagem já processada (entrega at-least-once): pode ser ignorada.
+    #[error("mensagem duplicada")]
+    Duplicate,
+    /// Mensagem de uma época ou geração antiga demais para ainda ser decifrada.
+    #[error("mensagem antiga demais")]
+    TooOld,
+    /// Mensagem de uma época que este device ainda não alcançou (falta aplicar um commit).
+    #[error("época desconhecida (commit pendente)")]
+    UnknownEpoch,
+    /// Mensagem de outra conversa.
+    #[error("mensagem de outra conversa")]
+    WrongConversation,
+    /// O Welcome não foi feito para nenhum KeyPackage deste device.
+    #[error("welcome não é para este device")]
+    NotForThisDevice,
+    /// Mensagem MLS que o Kin ainda não trata (propostas soltas, etc.).
+    #[error("tipo de mensagem não suportado")]
+    Unsupported,
+    #[error("falha no MLS: {0}")]
+    Mls(String),
+}
+
+impl Error {
+    pub(crate) fn mls(e: impl std::fmt::Display) -> Self {
+        Self::Mls(e.to_string())
+    }
+}

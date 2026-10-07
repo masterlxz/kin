@@ -96,6 +96,17 @@ qualquer backend.
 conversa), sem vazar tipos do `openmls` para o resto; spike curto de 1:1 na Fase 1.5 antes de
 construir sobre ele.
 
+**Implementação da 1.5 (Sessão 3)**: `openmls` 0.9.0 fixado (`=0.9.0`, API quebra a cada minor), provider
+`openmls_rust_crypto` (só cipher suite clássica `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`).
+- **Chave MLS por device**, gerada pelo `crypto` (não reaproveita a chave libp2p). A credencial MLS
+  (`BasicCredential`) carrega um `DeviceCertificate` (D7) que certifica **a chave de assinatura MLS**.
+  Ao aceitar KeyPackage, Welcome ou commit com `Add`, o `crypto` confere: assinatura do certificado,
+  certificado cobre exatamente a chave do membro e (opcional) identidade esperada.
+- **Épocas/ordem (P9)**: `max_past_epochs = 3`, tolerância fora de ordem 10 gerações, avanço máx. 2000.
+  Erros tipados: `Duplicate`, `TooOld`, `UnknownEpoch`, `WrongConversation`. Com 2 membros, só um lado
+  deve emitir commits por vez; commits concorrentes **não** têm resolução automática no MLS.
+- Estado do grupo e chaves só em memória (`MemoryStorage`); ver P14.
+
 **Reabrir se**: o spike mostrar que ordenação de commits sem servidor é inviável ou frágil em P2P;
 plano B: Double Ratchet (ex.: `vodozemac`; `libsignal` é AGPLv3) para 1:1 e sender keys para grupos.
 

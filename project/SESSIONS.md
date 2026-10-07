@@ -100,5 +100,17 @@
   **Ressalva**: ainda não testado entre duas redes reais (IP público); só confirma que o caminho
   funciona sem mDNS. O `observed_addr` do identify não é adotado como endereço externo (isso é
   AutoNAT/DCUtR, Fase 2).
-- **Próximo passo**: Fase 1.5 (E2EE 1:1 com MLS/`openmls` no crate `crypto`; atenção a P9, ordenação
-  de commits sem Delivery Service).
+- **Explicação e plano da 1.5**: usuário pediu primeiro uma explicação de E2EE/MLS e um plano (modo
+  plano, pesquisa da API do `openmls` 0.9 por agente; depois confirmada compilando e lendo o código-fonte).
+  Decisões do usuário: spike no próprio crate com interface final e estado em memória; chave MLS por
+  device certificada pela identidade.
+- **Fase 1.5 feita**: `kin-crypto` (`CryptoDevice`, `Conversation`, `Decrypted`, `Error`) sem vazar tipos
+  do `openmls`; `kin-identity` ganhou `DeviceCertificate::to_bytes/from_bytes`, `public_key_from_ed25519`
+  e `ed25519_bytes`. 10 testes de integração + 3 unitários no `crypto` (fluxo nos dois sentidos, texto
+  adulterado, duplicata → `Duplicate`, fora de ordem, outra conversa, rotação de época, mensagem do
+  commit chegando antes/depois, Welcome de outro device, identidade esperada) e 3 novos no `identity`.
+  Achados na pesquisa/código: `MlsMessageIn::into_welcome` só existe em testes (usar `extract()`);
+  `ProcessMessageError` é genérico no storage; duplicata = `SecretReuseError`. P14 (persistência MLS) e
+  P15 (Peer ID ↔ chave MLS) abertas; P9 segue aberta para commits concorrentes/grupos.
+- **Próximo passo**: Fase 1.6 (chat 1:1 mínimo no crate `chat` com `parent_message_id`, ligando
+  `crypto` + `transport`). Antes, decidir se P14 (persistência) entra na 1.6.

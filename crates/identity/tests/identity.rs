@@ -67,3 +67,37 @@ fn rejects_non_ed25519_or_garbage_bytes() {
     assert!(StandaloneIdentity::from_bytes(b"lixo").is_err());
     assert!(DeviceKey::from_bytes(&[]).is_err());
 }
+
+#[test]
+fn certificate_roundtrips_through_bytes_and_still_verifies() {
+    let id = StandaloneIdentity::generate();
+    let device = DeviceKey::generate();
+    let cert = id.authorize_device(&device.public_key(), 42).unwrap();
+
+    let restored = kin_identity::DeviceCertificate::from_bytes(&cert.to_bytes()).unwrap();
+    assert_eq!(restored, cert);
+    restored.verify().unwrap();
+}
+
+#[test]
+fn certificate_from_bytes_rejects_truncated_and_trailing_data() {
+    let id = StandaloneIdentity::generate();
+    let cert = id
+        .authorize_device(&DeviceKey::generate().public_key(), 1)
+        .unwrap();
+    let bytes = cert.to_bytes();
+
+    assert!(kin_identity::DeviceCertificate::from_bytes(&bytes[..bytes.len() - 1]).is_err());
+    let mut extra = bytes.clone();
+    extra.push(0);
+    assert!(kin_identity::DeviceCertificate::from_bytes(&extra).is_err());
+    assert!(kin_identity::DeviceCertificate::from_bytes(&[]).is_err());
+}
+
+#[test]
+fn ed25519_key_helpers_roundtrip() {
+    let key = DeviceKey::generate().public_key();
+    let raw = kin_identity::ed25519_bytes(&key).unwrap();
+    assert_eq!(kin_identity::public_key_from_ed25519(&raw).unwrap(), key);
+    assert!(kin_identity::public_key_from_ed25519(&[1, 2, 3]).is_err());
+}

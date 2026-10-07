@@ -31,7 +31,7 @@
 - [x] 1.2 — Identidade com provedores (D7): provedor standalone (keypair Ed25519) + interface pronta para o TruthID opcional; chave de device + Peer ID derivado — crate `identity` com `IdentityProvider`, `StandaloneIdentity`, `DeviceKey`, `DeviceCertificate` (Sessão 3)
 - [x] 1.3 — Descoberta em LAN via mDNS — `Node` em `kin-transport` (TCP + Noise + Yamux, mDNS, auto-dial) (Sessão 3)
 - [x] 1.4 — Conexão direta pela internet (IP alcançável) — `dial` por endereço com verificação do Peer ID, `identify`, mDNS opcional via `NodeConfig`; validado em loopback, não ainda entre redes distintas (Sessão 3)
-- [ ] 1.5 — E2EE 1:1 (conforme D2)
+- [x] 1.5 — E2EE 1:1 (conforme D2) — `kin-crypto` sobre `openmls` 0.9: `CryptoDevice`, `Conversation` (create/invite/join/encrypt/decrypt/rotate_keys), estado em memória (Sessão 3)
 - [ ] 1.6 — Chat 1:1 mínimo (desktop primeiro); formato de mensagem já com `parent_message_id` para threads (D4)
 - [ ] 1.7 — Testes de integração com dois nós
 
