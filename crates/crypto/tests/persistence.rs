@@ -1,5 +1,5 @@
-use kin_crypto::{Conversation, CryptoDevice, Decrypted, Error};
-use kin_identity::{IdentityProvider, StandaloneIdentity};
+use kin_crypto::{Conversation, CryptoDevice, Decrypted, Error, Expected};
+use kin_identity::{DeviceKey, IdentityProvider, PublicKey, StandaloneIdentity};
 
 fn text(d: Decrypted) -> Vec<u8> {
     match d {
@@ -10,6 +10,7 @@ fn text(d: Decrypted) -> Vec<u8> {
 
 #[test]
 fn conversation_survives_a_restart_on_both_sides() {
+    let (net_ana, net_bia) = (key(), key());
     let dir = tempfile::tempdir().unwrap();
     let (db_ana, db_bia) = (dir.path().join("ana.db"), dir.path().join("bia.db"));
     let (ana, bia) = (
@@ -19,14 +20,15 @@ fn conversation_survives_a_restart_on_both_sides() {
 
     let (id, in_flight) = {
         let (dev_ana, dev_bia) = (
-            CryptoDevice::open(&ana, &db_ana, 1).unwrap(),
-            CryptoDevice::open(&bia, &db_bia, 1).unwrap(),
+            CryptoDevice::open(&ana, &net_ana, &db_ana, 1).unwrap(),
+            CryptoDevice::open(&bia, &net_bia, &db_bia, 1).unwrap(),
         );
         let mut c_ana = Conversation::create(&dev_ana).unwrap();
         let invite = c_ana
-            .invite(&dev_bia.key_package().unwrap(), Some(&bia.id()))
+            .invite(&dev_bia.key_package().unwrap(), &Expected::default())
             .unwrap();
-        let mut c_bia = Conversation::join(&dev_bia, &invite.welcome, Some(&ana.id())).unwrap();
+        let mut c_bia =
+            Conversation::join(&dev_bia, &invite.welcome, &Expected::default()).unwrap();
         dev_ana.remember("bia", &c_ana.id()).unwrap();
         dev_bia.remember("ana", &c_bia.id()).unwrap();
 
@@ -36,8 +38,8 @@ fn conversation_survives_a_restart_on_both_sides() {
         (c_ana.id(), c_ana.encrypt(b"em voo").unwrap())
     };
 
-    let dev_ana = CryptoDevice::open(&ana, &db_ana, 2).unwrap();
-    let dev_bia = CryptoDevice::open(&bia, &db_bia, 2).unwrap();
+    let dev_ana = CryptoDevice::open(&ana, &net_ana, &db_ana, 2).unwrap();
+    let dev_bia = CryptoDevice::open(&bia, &net_bia, &db_bia, 2).unwrap();
     assert_eq!(
         dev_ana.remembered().unwrap(),
         vec![("bia".into(), id.clone())]
@@ -62,21 +64,31 @@ fn reopening_keeps_the_device_key_and_rejects_another_identity() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("kin.db");
     let ana = StandaloneIdentity::generate();
-    let first = CryptoDevice::open(&ana, &path, 1).unwrap();
+    let net = key();
+    let first = CryptoDevice::open(&ana, &net, &path, 1).unwrap();
     // O KeyPackage carrega a chave do device: recarregar não pode trocá-la.
     let kp_before = Conversation::create(&first).unwrap().id();
     drop(first);
-    let second = CryptoDevice::open(&ana, &path, 99).unwrap();
+    let second = CryptoDevice::open(&ana, &net, &path, 99).unwrap();
     assert!(Conversation::load(&second, &kp_before).unwrap().is_some());
 
     let other = StandaloneIdentity::generate();
     assert!(matches!(
-        CryptoDevice::open(&other, &path, 1),
+        CryptoDevice::open(&other, &net, &path, 1),
         Err(Error::IdentityMismatch)
+    ));
+    // P15: o certificado salvo cobre a chave de rede antiga; outra chave de rede não serve.
+    assert!(matches!(
+        CryptoDevice::open(&ana, &key(), &path, 1),
+        Err(Error::DeviceMismatch)
     ));
     assert!(
         Conversation::load(&second, b"nao existe")
             .unwrap()
             .is_none()
     );
+}
+
+fn key() -> PublicKey {
+    DeviceKey::generate().public_key()
 }

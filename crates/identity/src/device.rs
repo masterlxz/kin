@@ -2,7 +2,7 @@ use libp2p_identity::{Keypair, PeerId, PublicKey};
 
 use crate::{Error, IdentityId};
 
-const CERT_DOMAIN: &[u8] = b"kin/device-cert/v1";
+const CERT_DOMAIN: &[u8] = b"kin/device-cert/v2";
 
 /// Chave de um device. O Peer ID de rede é derivado dela.
 pub struct DeviceKey(Keypair);
@@ -39,27 +39,40 @@ impl DeviceKey {
     }
 }
 
-/// Prova assinada pela identidade de que um device lhe pertence.
+/// Prova assinada pela identidade de que um device lhe pertence. Cobre as duas chaves do device:
+/// a de assinatura MLS e a de rede (libp2p, de onde sai o Peer ID), ligando uma à outra (P15).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeviceCertificate {
     pub identity: IdentityId,
-    pub device: PublicKey,
+    /// Chave de assinatura MLS do device.
+    pub signing_key: PublicKey,
+    /// Chave de rede do device (a mesma do [`DeviceKey`]).
+    pub network_key: PublicKey,
     pub created_at: u64,
     pub signature: Vec<u8>,
 }
 
 impl DeviceCertificate {
     /// Bytes que a identidade assina (com separador de domínio para evitar reuso da assinatura).
-    pub(crate) fn signing_payload(device: &PublicKey, created_at: u64) -> Vec<u8> {
+    pub(crate) fn signing_payload(
+        signing_key: &PublicKey,
+        network_key: &PublicKey,
+        created_at: u64,
+    ) -> Vec<u8> {
         let mut payload = CERT_DOMAIN.to_vec();
-        payload.extend_from_slice(&device.encode_protobuf());
+        // Prefixo de tamanho: evita que duas chaves diferentes produzam o mesmo payload.
+        for key in [signing_key, network_key] {
+            let encoded = key.encode_protobuf();
+            payload.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
+            payload.extend_from_slice(&encoded);
+        }
         payload.extend_from_slice(&created_at.to_be_bytes());
         payload
     }
 
     /// Confere a assinatura do certificado.
     pub fn verify(&self) -> Result<(), Error> {
-        let payload = Self::signing_payload(&self.device, self.created_at);
+        let payload = Self::signing_payload(&self.signing_key, &self.network_key, self.created_at);
         if self.identity.public_key().verify(&payload, &self.signature) {
             Ok(())
         } else {
@@ -67,11 +80,12 @@ impl DeviceCertificate {
         }
     }
 
-    /// Serializa o certificado: `len16|identidade | len16|device | created_at u64 BE | len16|assinatura`.
+    /// Serializa o certificado: `len16|identidade | len16|chave MLS | len16|chave de rede | created_at u64 BE | len16|assinatura`.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
         put(&mut out, &self.identity.public_key().encode_protobuf());
-        put(&mut out, &self.device.encode_protobuf());
+        put(&mut out, &self.signing_key.encode_protobuf());
+        put(&mut out, &self.network_key.encode_protobuf());
         out.extend_from_slice(&self.created_at.to_be_bytes());
         put(&mut out, &self.signature);
         out
@@ -81,7 +95,8 @@ impl DeviceCertificate {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let mut cur = bytes;
         let identity = PublicKey::try_decode_protobuf(take(&mut cur)?)?;
-        let device = PublicKey::try_decode_protobuf(take(&mut cur)?)?;
+        let signing_key = PublicKey::try_decode_protobuf(take(&mut cur)?)?;
+        let network_key = PublicKey::try_decode_protobuf(take(&mut cur)?)?;
         let created_at = u64::from_be_bytes(
             cur.get(..8)
                 .ok_or(Error::InvalidCertificate)?
@@ -95,15 +110,16 @@ impl DeviceCertificate {
         }
         Ok(Self {
             identity: IdentityId::new(identity),
-            device,
+            signing_key,
+            network_key,
             created_at,
             signature,
         })
     }
 
-    /// Peer ID do device certificado.
-    pub fn device_peer_id(&self) -> PeerId {
-        self.device.to_peer_id()
+    /// Peer ID de rede do device certificado.
+    pub fn network_peer_id(&self) -> PeerId {
+        self.network_key.to_peer_id()
     }
 }
 

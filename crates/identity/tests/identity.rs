@@ -11,30 +11,47 @@ fn identity_signature_verifies_and_rejects_tampering() {
 #[test]
 fn device_certificate_verifies() {
     let id = StandaloneIdentity::generate();
-    let device = DeviceKey::generate();
-    let cert = id.authorize_device(&device.public_key(), 1_000).unwrap();
+    let (mls, device) = (DeviceKey::generate(), DeviceKey::generate());
+    let cert = id
+        .authorize_device(&mls.public_key(), &device.public_key(), 1_000)
+        .unwrap();
     cert.verify().unwrap();
     assert_eq!(cert.identity, id.id());
-    assert_eq!(cert.device_peer_id(), device.peer_id());
+    assert_eq!(cert.signing_key, mls.public_key());
+    assert_eq!(cert.network_peer_id(), device.peer_id());
 }
 
 #[test]
 fn certificate_from_another_identity_or_tampered_fails() {
     let id = StandaloneIdentity::generate();
     let other = StandaloneIdentity::generate();
-    let device = DeviceKey::generate();
+    let (mls, net) = (
+        DeviceKey::generate().public_key(),
+        DeviceKey::generate().public_key(),
+    );
+    let issue = || id.authorize_device(&mls, &net, 1_000).unwrap();
 
-    let mut cert = id.authorize_device(&device.public_key(), 1_000).unwrap();
+    let mut cert = issue();
     cert.created_at += 1;
     assert!(cert.verify().is_err());
 
-    let mut forged = id.authorize_device(&device.public_key(), 1_000).unwrap();
+    let mut forged = issue();
     forged.identity = other.id();
     assert!(forged.verify().is_err());
 
-    let mut swapped = id.authorize_device(&device.public_key(), 1_000).unwrap();
-    swapped.device = DeviceKey::generate().public_key();
+    let mut swapped = issue();
+    swapped.signing_key = DeviceKey::generate().public_key();
     assert!(swapped.verify().is_err());
+
+    // Trocar só a chave de rede também invalida (é o que impede reaproveitar o certificado, P15).
+    let mut renet = issue();
+    renet.network_key = DeviceKey::generate().public_key();
+    assert!(renet.verify().is_err());
+
+    // Inverter as duas chaves também não passa: o payload preserva a ordem.
+    let mut flipped = issue();
+    std::mem::swap(&mut flipped.signing_key, &mut flipped.network_key);
+    assert!(flipped.verify().is_err());
 }
 
 #[test]
@@ -71,8 +88,13 @@ fn rejects_non_ed25519_or_garbage_bytes() {
 #[test]
 fn certificate_roundtrips_through_bytes_and_still_verifies() {
     let id = StandaloneIdentity::generate();
-    let device = DeviceKey::generate();
-    let cert = id.authorize_device(&device.public_key(), 42).unwrap();
+    let cert = id
+        .authorize_device(
+            &DeviceKey::generate().public_key(),
+            &DeviceKey::generate().public_key(),
+            42,
+        )
+        .unwrap();
 
     let restored = kin_identity::DeviceCertificate::from_bytes(&cert.to_bytes()).unwrap();
     assert_eq!(restored, cert);
@@ -83,7 +105,11 @@ fn certificate_roundtrips_through_bytes_and_still_verifies() {
 fn certificate_from_bytes_rejects_truncated_and_trailing_data() {
     let id = StandaloneIdentity::generate();
     let cert = id
-        .authorize_device(&DeviceKey::generate().public_key(), 1)
+        .authorize_device(
+            &DeviceKey::generate().public_key(),
+            &DeviceKey::generate().public_key(),
+            1,
+        )
         .unwrap();
     let bytes = cert.to_bytes();
 

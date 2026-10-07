@@ -33,11 +33,13 @@ pub trait IdentityProvider {
     /// Assina `message` com a chave da identidade.
     fn sign(&self, message: &[u8]) -> Result<Vec<u8>, Error>;
 
-    /// Autoriza um device ("este device pertence a esta identidade").
+    /// Autoriza um device ("este device pertence a esta identidade"), certificando a chave de
+    /// assinatura MLS e a chave de rede juntas.
     /// `created_at` é o instante em segundos Unix, passado de fora para manter o código testável.
     fn authorize_device(
         &self,
-        device: &PublicKey,
+        signing_key: &PublicKey,
+        network_key: &PublicKey,
         created_at: u64,
     ) -> Result<DeviceCertificate, Error>;
 }

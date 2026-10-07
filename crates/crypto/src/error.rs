@@ -9,6 +9,9 @@ pub enum Error {
     /// O certificado é válido, mas de uma identidade diferente da esperada.
     #[error("identidade diferente da esperada")]
     UnexpectedIdentity,
+    /// O certificado é válido, mas o Peer ID de rede dele não é o esperado (P15).
+    #[error("peer de rede diferente do esperado")]
+    UnexpectedPeer,
     #[error("mensagem malformada")]
     Malformed,
     /// Mensagem já processada (entrega at-least-once): pode ser ignorada.
@@ -32,6 +35,9 @@ pub enum Error {
     /// O banco de estado já pertence a outra identidade.
     #[error("o estado salvo pertence a outra identidade")]
     IdentityMismatch,
+    /// O banco foi criado com outra chave de rede; as conversas antigas não valem mais (P15).
+    #[error("o estado salvo pertence a outra chave de rede do device")]
+    DeviceMismatch,
     #[error("armazenamento: {0}")]
     Storage(String),
     #[error("falha no MLS: {0}")]

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use kin_identity::{IdentityId, IdentityProvider, public_key_from_ed25519};
+use kin_identity::{IdentityId, IdentityProvider, PublicKey, public_key_from_ed25519};
 use openmls::prelude::tls_codec::Serialize as _;
 use openmls::prelude::{
     BasicCredential, Ciphersuite, CredentialWithKey, KeyPackage, SignatureScheme,
@@ -28,25 +28,37 @@ pub(crate) struct Inner {
 pub struct CryptoDevice(pub(crate) Rc<Inner>);
 
 impl CryptoDevice {
-    /// Device só em memória: gera a chave MLS e a certifica com `identity` (`created_at` em segundos
-    /// Unix). Nada sobrevive ao processo.
-    pub fn new(identity: &dyn IdentityProvider, created_at: u64) -> Result<Self, Error> {
-        Self::build(Provider::open(None)?, identity, created_at)
+    /// Device só em memória: gera a chave MLS e a certifica com `identity`, junto da chave de rede
+    /// `network_key` do device (`created_at` em segundos Unix). Nada sobrevive ao processo.
+    pub fn new(
+        identity: &dyn IdentityProvider,
+        network_key: &PublicKey,
+        created_at: u64,
+    ) -> Result<Self, Error> {
+        Self::build(Provider::open(None)?, identity, network_key, created_at)
     }
 
     /// Device persistente: o estado MLS vive no banco SQLite em `path`. Na primeira vez gera e
-    /// certifica a chave; nas seguintes recarrega a mesma (e falha se o banco é de outra identidade).
+    /// certifica a chave; nas seguintes recarrega a mesma (e falha se o banco é de outra identidade
+    /// ou foi criado com outra chave de rede).
     pub fn open(
         identity: &dyn IdentityProvider,
+        network_key: &PublicKey,
         path: &std::path::Path,
         created_at: u64,
     ) -> Result<Self, Error> {
-        Self::build(Provider::open(Some(path))?, identity, created_at)
+        Self::build(
+            Provider::open(Some(path))?,
+            identity,
+            network_key,
+            created_at,
+        )
     }
 
     fn build(
         provider: Provider,
         identity: &dyn IdentityProvider,
+        network_key: &PublicKey,
         created_at: u64,
     ) -> Result<Self, Error> {
         let (signer, certificate) = match load_signer(&provider)? {
@@ -54,8 +66,9 @@ impl CryptoDevice {
             None => {
                 let signer = SignatureKeyPair::new(SignatureScheme::ED25519).map_err(Error::mls)?;
                 signer.store(provider.storage()).map_err(Error::mls)?;
-                let device_key = public_key_from_ed25519(signer.public())?;
-                let certificate = identity.authorize_device(&device_key, created_at)?;
+                let signing_key = public_key_from_ed25519(signer.public())?;
+                let certificate =
+                    identity.authorize_device(&signing_key, network_key, created_at)?;
                 provider.set_meta(META_SIGNER, signer.public())?;
                 provider.set_meta(META_CERT, &certificate.to_bytes())?;
                 (signer, certificate)
@@ -63,6 +76,9 @@ impl CryptoDevice {
         };
         if certificate.identity != identity.id() {
             return Err(Error::IdentityMismatch);
+        }
+        if &certificate.network_key != network_key {
+            return Err(Error::DeviceMismatch);
         }
         let credential = CredentialWithKey {
             credential: BasicCredential::new(certificate.to_bytes()).into(),

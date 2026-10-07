@@ -99,9 +99,11 @@ construir sobre ele.
 **Implementação da 1.5 (Sessão 3)**: `openmls` 0.9.0 fixado (`=0.9.0`, API quebra a cada minor), provider
 `openmls_rust_crypto` (só cipher suite clássica `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`).
 - **Chave MLS por device**, gerada pelo `crypto` (não reaproveita a chave libp2p). A credencial MLS
-  (`BasicCredential`) carrega um `DeviceCertificate` (D7) que certifica **a chave de assinatura MLS**.
-  Ao aceitar KeyPackage, Welcome ou commit com `Add`, o `crypto` confere: assinatura do certificado,
-  certificado cobre exatamente a chave do membro e (opcional) identidade esperada.
+  (`BasicCredential`) carrega um `DeviceCertificate` (D7) que certifica **a chave de assinatura MLS e a
+  chave de rede (libp2p) do device** (P15). Ao aceitar KeyPackage, Welcome ou commit com `Add`, o `crypto`
+  confere: assinatura do certificado, certificado cobre exatamente a chave do membro e (opcional) identidade
+  e Peer ID esperados. O `chat` exige que o Peer ID da conexão seja o do certificado, então a identidade
+  mostrada é a de quem está na linha.
 - **Épocas/ordem (P9)**: `max_past_epochs = 3`, tolerância fora de ordem 10 gerações, avanço máx. 2000.
   Erros tipados: `Duplicate`, `TooOld`, `UnknownEpoch`, `WrongConversation`. Com 2 membros, só um lado
   deve emitir commits por vez; commits concorrentes **não** têm resolução automática no MLS.

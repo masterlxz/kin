@@ -151,5 +151,20 @@
   ainda tem estado reanuncia `ConversationReady` e o remetente recebe `Delivered` por mensagens que o
   destino só descarta (`Dropped`) → **P16** aberta. Estável em 5 execuções seguidas; `cargo test
   --workspace`, clippy e fmt ok.
-- **Próximo passo**: fechar a Fase 1 — P15 (Peer ID ↔ chave MLS) e teste manual entre duas redes reais
-  (critério "pela internet"; o 1.4 só foi validado em loopback). Depois, Fase 2.
+- **P15 resolvida** (decisão: certificado cobre as duas chaves, em vez de reusar a mesma chave nos dois
+  protocolos ou assinar o Peer ID à parte):
+  - `identity`: `DeviceCertificate` v2 (domínio `kin/device-cert/v2`) com `signing_key` (MLS, antes `device`)
+    e `network_key`; `authorize_device(signing_key, network_key, created_at)`; `device_peer_id()` →
+    `network_peer_id()`. Payload com prefixo de tamanho nas chaves.
+  - `crypto`: `Expected { identity, peer }`; `invite`/`join` recusam Peer ID diferente (`UnexpectedPeer`);
+    `CryptoDevice::new/open` recebem a chave de rede e `open` falha com `DeviceMismatch` se ela mudou;
+    `Conversation::peer_ids`. **Achado**: o `join` antigo conferia os membros depois de `into_group`, ou
+    seja, com o grupo já gravado no banco; agora confere o `StagedWelcome` antes, sem deixar grupo órfão.
+    O openmls consome o KeyPackage ao ler o Welcome, então um Welcome recusado queima o KeyPackage (o
+    peer só manda outro num novo `Hello`/reconexão).
+  - `chat`: `on_key_package`/`on_welcome` exigem o Peer ID da conexão; `Chat::open` ignora conversa cujo
+    rótulo não bate com o certificado. Teste unitário `key_package_from_another_peer_is_refused`.
+  - Quebra deliberada: bancos `.kin` antigos (certificado v1) não abrem; apagar `mls.sqlite`. Smoke test
+    da CLI com dois diretórios novos ok; `cargo test --workspace`, clippy e fmt ok.
+- **Próximo passo**: fechar a Fase 1 com o teste manual entre duas redes reais (critério "pela internet";
+  o 1.4 só foi validado em loopback). Depois, Fase 2. P16 (re-handshake) e P13 (chave sem cifra) seguem abertas.

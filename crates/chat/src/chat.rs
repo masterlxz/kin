@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use kin_crypto::{Conversation, CryptoDevice, Decrypted, Error as CryptoError};
+use kin_crypto::{Conversation, CryptoDevice, Decrypted, Error as CryptoError, Expected};
 use kin_identity::{DeviceKey, IdentityId, IdentityProvider};
 use kin_transport::{Multiaddr, Node, NodeConfig, NodeEvent, PeerId, SendId};
 
@@ -47,8 +47,9 @@ pub enum ChatEvent {
 
 /// Chat 1:1: liga o transporte (`kin-transport`) à conversa cifrada (`kin-crypto`).
 ///
-/// Uma conversa por peer; persistente com [`Chat::open`], em memória com [`Chat::new`]. A ligação entre o Peer ID e a identidade MLS do
-/// peer ainda não é provada (P15): `identity` vem do certificado MLS, não da conexão.
+/// Uma conversa por peer; persistente com [`Chat::open`], em memória com [`Chat::new`]. O
+/// certificado do device cobre a chave MLS e a chave de rede (P15): o KeyPackage e o Welcome só são
+/// aceitos se o Peer ID da conexão for o certificado nele, então `identity` é de quem está na linha.
 pub struct Chat {
     node: Node,
     device: CryptoDevice,
@@ -66,7 +67,7 @@ impl Chat {
         device_key: &DeviceKey,
         config: NodeConfig,
     ) -> Result<Self, Error> {
-        let device = CryptoDevice::new(identity, now_secs())?;
+        let device = CryptoDevice::new(identity, &device_key.public_key(), now_secs())?;
         Self::with_device(device, device_key, config)
     }
 
@@ -78,7 +79,7 @@ impl Chat {
         config: NodeConfig,
         db: &Path,
     ) -> Result<Self, Error> {
-        let device = CryptoDevice::open(identity, db, now_secs())?;
+        let device = CryptoDevice::open(identity, &device_key.public_key(), db, now_secs())?;
         let mut chat = Self::with_device(device, device_key, config)?;
         for (label, id) in chat.device.remembered()? {
             // Rótulo ou conversa que não carregam mais são ignorados: o handshake refaz.
@@ -86,7 +87,10 @@ impl Chat {
                 continue;
             };
             if let Some(conversation) = Conversation::load(&chat.device, &id)? {
-                chat.conversations.insert(peer, conversation);
+                // O rótulo salvo tem de bater com o Peer ID certificado do outro membro.
+                if conversation.peer_ids()? == [peer] {
+                    chat.conversations.insert(peer, conversation);
+                }
             }
         }
         Ok(chat)
@@ -222,7 +226,13 @@ impl Chat {
             return Ok(());
         }
         let mut conversation = Conversation::create(&self.device)?;
-        let invite = conversation.invite(key_package, None)?;
+        let invite = conversation.invite(
+            key_package,
+            &Expected {
+                identity: None,
+                peer: Some(&peer),
+            },
+        )?;
         self.transmit(peer, &Envelope::Welcome(invite.welcome));
         self.ready(peer, conversation)
     }
@@ -231,7 +241,14 @@ impl Chat {
         if self.conversations.contains_key(&peer) || self.peer_id() < peer {
             return Ok(());
         }
-        let conversation = Conversation::join(&self.device, welcome, None)?;
+        let conversation = Conversation::join(
+            &self.device,
+            welcome,
+            &Expected {
+                identity: None,
+                peer: Some(&peer),
+            },
+        )?;
         self.ready(peer, conversation)
     }
 
@@ -295,4 +312,52 @@ fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use kin_identity::StandaloneIdentity;
+
+    use super::*;
+
+    fn chat(identity: &StandaloneIdentity, device: &DeviceKey) -> Chat {
+        Chat::new(identity, device, NodeConfig { mdns: false }).unwrap()
+    }
+
+    /// P15: o KeyPackage legítimo de Bia, entregue por outro Peer ID, não vira conversa.
+    #[tokio::test]
+    async fn key_package_from_another_peer_is_refused() {
+        let (id_a, id_b) = (
+            StandaloneIdentity::generate(),
+            StandaloneIdentity::generate(),
+        );
+        // `on_key_package` só age no lado de menor Peer ID: sorteia até Ana ser a menor.
+        let (dev_a, dev_b, dev_m) = loop {
+            let keys = (
+                DeviceKey::generate(),
+                DeviceKey::generate(),
+                DeviceKey::generate(),
+            );
+            if keys.0.peer_id() < keys.1.peer_id() && keys.0.peer_id() < keys.2.peer_id() {
+                break keys;
+            }
+        };
+        let mut ana = chat(&id_a, &dev_a);
+        let bia_kp = CryptoDevice::new(&id_b, &dev_b.public_key(), 1)
+            .unwrap()
+            .key_package()
+            .unwrap();
+
+        // M (um peer qualquer, conectado a Ana) repassa o pacote da Bia como se fosse dele.
+        let err = ana.on_key_package(dev_m.peer_id(), &bia_kp).unwrap_err();
+        assert!(
+            matches!(err, Error::Crypto(CryptoError::UnexpectedPeer)),
+            "{err:?}"
+        );
+        assert!(!ana.is_ready(&dev_m.peer_id()) && !ana.is_ready(&dev_b.peer_id()));
+
+        // Vindo da própria Bia, o mesmo pacote é aceito.
+        ana.on_key_package(dev_b.peer_id(), &bia_kp).unwrap();
+        assert!(ana.is_ready(&dev_b.peer_id()));
+    }
 }

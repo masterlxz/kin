@@ -1,4 +1,4 @@
-use kin_identity::IdentityId;
+use kin_identity::{IdentityId, PeerId};
 use openmls::prelude::tls_codec::Deserialize as _;
 use openmls::prelude::{
     GroupId, KeyPackageIn, MlsGroup, MlsGroupCreateConfig, MlsMessageBodyIn, MlsMessageIn,
@@ -26,6 +26,14 @@ fn config() -> MlsGroupCreateConfig {
         ))
         .max_past_epochs(MAX_PAST_EPOCHS)
         .build()
+}
+
+/// O que o chamador já sabe sobre o outro lado; cada campo informado é exigido (o que fica `None`
+/// não é conferido). O Peer ID vem da conexão de rede e amarra a credencial MLS a ela (P15).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Expected<'a> {
+    pub identity: Option<&'a IdentityId>,
+    pub peer: Option<&'a PeerId>,
 }
 
 /// Resultado de [`Conversation::invite`].
@@ -86,12 +94,8 @@ impl Conversation {
     }
 
     /// Entra numa conversa a partir de um Welcome. Confere a credencial de todos os membros;
-    /// `expected_inviter` exige que alguém do grupo tenha essa identidade.
-    pub fn join(
-        device: &CryptoDevice,
-        welcome: &[u8],
-        expected_inviter: Option<&IdentityId>,
-    ) -> Result<Self, Error> {
+    /// `inviter` exige que algum outro membro do grupo satisfaça identidade e Peer ID informados.
+    pub fn join(device: &CryptoDevice, welcome: &[u8], inviter: &Expected) -> Result<Self, Error> {
         let inner = &device.0;
         let MlsMessageBodyIn::Welcome(welcome) = MlsMessageIn::tls_deserialize_exact(welcome)
             .map_err(|_| Error::Malformed)?
@@ -99,20 +103,36 @@ impl Conversation {
         else {
             return Err(Error::Malformed);
         };
-        let group =
+        // Confere todos os membros com o Welcome ainda só "staged": se algo não bater, o grupo não
+        // chega a ser gravado no banco (o KeyPackage, porém, já foi consumido pelo openmls).
+        let staged =
             StagedWelcome::new_from_welcome(&inner.provider, config().join_config(), welcome, None)
-                .map_err(|_| Error::NotForThisDevice)?
-                .into_group(&inner.provider)
-                .map_err(Error::mls)?;
+                .map_err(|_| Error::NotForThisDevice)?;
 
-        let mut found_inviter = expected_inviter.is_none();
-        for member in group.members() {
-            let id = credential::verify(&member.credential, &member.signature_key, None)?;
-            found_inviter |= Some(&id) == expected_inviter;
+        let own = staged.own_leaf_index();
+        let (mut found_identity, mut found_both) = (
+            inviter.identity.is_none(),
+            inviter.peer.is_none() && inviter.identity.is_none(),
+        );
+        for member in staged.members() {
+            let who = credential::verify(
+                &member.credential,
+                &member.signature_key,
+                &Expected::default(),
+            )?;
+            if member.index == own {
+                continue;
+            }
+            found_identity |= inviter.identity.is_some_and(|id| id == &who.identity);
+            found_both |= inviter.accepts(&who);
         }
-        if !found_inviter {
+        if !found_identity {
             return Err(Error::UnexpectedIdentity);
         }
+        if !found_both {
+            return Err(Error::UnexpectedPeer);
+        }
+        let group = staged.into_group(&inner.provider).map_err(Error::mls)?;
         Ok(Self {
             device: device.clone(),
             group,
@@ -139,13 +159,19 @@ impl Conversation {
             .collect()
     }
 
+    /// Peer IDs de rede certificados dos outros membros.
+    pub fn peer_ids(&self) -> Result<Vec<PeerId>, Error> {
+        let own = self.group.own_leaf_index();
+        self.group
+            .members()
+            .filter(|m| m.index != own)
+            .map(|m| credential::peer_of(&m.credential))
+            .collect()
+    }
+
     /// Convida o dono do KeyPackage. Valida o KeyPackage e a credencial dele antes de aceitar;
-    /// `expected_identity` exige uma identidade específica.
-    pub fn invite(
-        &mut self,
-        key_package: &[u8],
-        expected_identity: Option<&IdentityId>,
-    ) -> Result<Invite, Error> {
+    /// `expected` exige identidade e/ou Peer ID de rede específicos.
+    pub fn invite(&mut self, key_package: &[u8], expected: &Expected) -> Result<Invite, Error> {
         let inner = &self.device.0;
         let key_package = KeyPackageIn::tls_deserialize_exact(key_package)
             .map_err(|_| Error::Malformed)?
@@ -154,7 +180,7 @@ impl Conversation {
         credential::verify(
             key_package.leaf_node().credential(),
             key_package.leaf_node().signature_key().as_slice(),
-            expected_identity,
+            expected,
         )?;
 
         let (commit, welcome, _) = self
@@ -224,7 +250,11 @@ impl Conversation {
             ProcessedMessageContent::StagedCommitMessage(staged) => {
                 for add in staged.add_proposals() {
                     let leaf = add.add_proposal().key_package().leaf_node();
-                    credential::verify(leaf.credential(), leaf.signature_key().as_slice(), None)?;
+                    credential::verify(
+                        leaf.credential(),
+                        leaf.signature_key().as_slice(),
+                        &Expected::default(),
+                    )?;
                 }
                 self.group
                     .merge_staged_commit(&inner.provider, *staged)

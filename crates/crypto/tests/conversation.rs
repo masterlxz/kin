@@ -1,15 +1,23 @@
-use kin_crypto::{Conversation, CryptoDevice, Decrypted, Error};
-use kin_identity::{IdentityProvider, StandaloneIdentity};
+use kin_crypto::{Conversation, CryptoDevice, Decrypted, Error, Expected};
+use kin_identity::{DeviceKey, IdentityId, IdentityProvider, PeerId, StandaloneIdentity};
 
 struct Person {
     identity: StandaloneIdentity,
+    id: IdentityId,
+    peer: PeerId,
     device: CryptoDevice,
 }
 
 fn person() -> Person {
     let identity = StandaloneIdentity::generate();
-    let device = CryptoDevice::new(&identity, 1_000).unwrap();
-    Person { identity, device }
+    let network = DeviceKey::generate();
+    let device = CryptoDevice::new(&identity, &network.public_key(), 1_000).unwrap();
+    Person {
+        id: identity.id(),
+        peer: network.peer_id(),
+        identity,
+        device,
+    }
 }
 
 /// Ana convida Bia e as duas passam a ter a mesma conversa.
@@ -17,11 +25,38 @@ fn pair() -> (Person, Person, Conversation, Conversation) {
     let (ana, bia) = (person(), person());
     let mut conv_ana = Conversation::create(&ana.device).unwrap();
     let invite = conv_ana
-        .invite(&bia.device.key_package().unwrap(), Some(&bia.identity.id()))
+        .invite(
+            &bia.device.key_package().unwrap(),
+            &Expected {
+                identity: Some(&bia.id),
+                peer: Some(&bia.peer),
+            },
+        )
         .unwrap();
-    let conv_bia =
-        Conversation::join(&bia.device, &invite.welcome, Some(&ana.identity.id())).unwrap();
+    let conv_bia = Conversation::join(
+        &bia.device,
+        &invite.welcome,
+        &Expected {
+            identity: Some(&ana.id),
+            peer: Some(&ana.peer),
+        },
+    )
+    .unwrap();
     (ana, bia, conv_ana, conv_bia)
+}
+
+fn identity(p: &Person) -> Expected<'_> {
+    Expected {
+        identity: Some(&p.id),
+        peer: None,
+    }
+}
+
+fn from(p: &Person) -> Expected<'_> {
+    Expected {
+        identity: None,
+        peer: Some(&p.peer),
+    }
 }
 
 fn text(d: Decrypted) -> Vec<u8> {
@@ -38,6 +73,8 @@ fn messages_flow_both_ways_and_carry_the_sender_identity() {
     assert_eq!(c_ana.epoch(), c_bia.epoch());
     assert_eq!(c_ana.peers().unwrap(), vec![bia.identity.id()]);
     assert_eq!(c_bia.peers().unwrap(), vec![ana.identity.id()]);
+    assert_eq!(c_ana.peer_ids().unwrap(), vec![bia.peer]);
+    assert_eq!(c_bia.peer_ids().unwrap(), vec![ana.peer]);
 
     let wire = c_ana.encrypt(b"oi bia").unwrap();
     assert!(
@@ -144,11 +181,11 @@ fn welcome_is_useless_to_a_device_it_was_not_made_for() {
     let intruder = person();
     let mut conv = Conversation::create(&ana.device).unwrap();
     let invite = conv
-        .invite(&bia.device.key_package().unwrap(), None)
+        .invite(&bia.device.key_package().unwrap(), &Expected::default())
         .unwrap();
 
     assert!(matches!(
-        Conversation::join(&intruder.device, &invite.welcome, None),
+        Conversation::join(&intruder.device, &invite.welcome, &Expected::default()),
         Err(Error::NotForThisDevice)
     ));
 }
@@ -161,14 +198,61 @@ fn identity_expectations_are_enforced_on_invite_and_join() {
 
     let kp = bia.device.key_package().unwrap();
     assert!(matches!(
-        conv.invite(&kp, Some(&stranger.identity.id())),
+        conv.invite(&kp, &identity(&stranger)),
         Err(Error::UnexpectedIdentity)
     ));
-    assert!(matches!(conv.invite(b"lixo", None), Err(Error::Malformed)));
-
-    let invite = conv.invite(&kp, Some(&bia.identity.id())).unwrap();
     assert!(matches!(
-        Conversation::join(&bia.device, &invite.welcome, Some(&stranger.identity.id())),
+        conv.invite(b"lixo", &Expected::default()),
+        Err(Error::Malformed)
+    ));
+
+    let invite = conv.invite(&kp, &identity(&bia)).unwrap();
+    assert!(matches!(
+        Conversation::join(&bia.device, &invite.welcome, &identity(&stranger)),
         Err(Error::UnexpectedIdentity)
+    ));
+}
+
+/// P15: um KeyPackage legítimo de Bia apresentado por outro Peer ID (um peer M repassando o pacote
+/// dela) é recusado, e o mesmo vale para o Welcome na volta.
+#[test]
+fn network_peer_expectations_are_enforced_on_invite_and_join() {
+    let (ana, bia) = (person(), person());
+    let relay = person(); // o peer que, na rede, entregou o pacote da Bia
+    let mut conv = Conversation::create(&ana.device).unwrap();
+
+    let kp = bia.device.key_package().unwrap();
+    assert!(matches!(
+        conv.invite(&kp, &from(&relay)),
+        Err(Error::UnexpectedPeer)
+    ));
+    // Recusar não pode ter alterado a conversa: o convite certo ainda funciona.
+    assert_eq!(conv.epoch(), 0);
+    let invite = conv.invite(&kp, &from(&bia)).unwrap();
+    Conversation::join(&bia.device, &invite.welcome, &from(&ana)).unwrap();
+
+    // O openmls consome o KeyPackage ao ler o Welcome, então cada tentativa usa um convite novo.
+    let welcome = || {
+        let mut conv = Conversation::create(&ana.device).unwrap();
+        let kp = bia.device.key_package().unwrap();
+        conv.invite(&kp, &Expected::default()).unwrap().welcome
+    };
+    // Welcome entregue por outro Peer ID (ou "convidante" que seria a própria Bia): recusado.
+    assert!(matches!(
+        Conversation::join(&bia.device, &welcome(), &from(&relay)),
+        Err(Error::UnexpectedPeer)
+    ));
+    assert!(matches!(
+        Conversation::join(&bia.device, &welcome(), &from(&bia)),
+        Err(Error::UnexpectedPeer)
+    ));
+    // Identidade certa mas Peer ID errado também.
+    let mixed = Expected {
+        identity: Some(&ana.id),
+        peer: Some(&relay.peer),
+    };
+    assert!(matches!(
+        Conversation::join(&bia.device, &welcome(), &mixed),
+        Err(Error::UnexpectedPeer)
     ));
 }

@@ -50,13 +50,15 @@ impl IdentityProvider for StandaloneIdentity {
 
     fn authorize_device(
         &self,
-        device: &PublicKey,
+        signing_key: &PublicKey,
+        network_key: &PublicKey,
         created_at: u64,
     ) -> Result<DeviceCertificate, Error> {
-        let payload = DeviceCertificate::signing_payload(device, created_at);
+        let payload = DeviceCertificate::signing_payload(signing_key, network_key, created_at);
         Ok(DeviceCertificate {
             identity: self.id(),
-            device: device.clone(),
+            signing_key: signing_key.clone(),
+            network_key: network_key.clone(),
             created_at,
             signature: self.master.sign(&payload)?,
         })
